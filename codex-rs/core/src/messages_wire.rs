@@ -562,7 +562,7 @@ mod tests {
 
     #[test]
     fn test_tools_translation() {
-        use crate::client_common::tools::ResponsesApiTool;
+        use codex_tools::ResponsesApiTool;
         use crate::tools::spec::JsonSchema;
 
         let tools = vec![ToolSpec::Function(ResponsesApiTool {
@@ -962,7 +962,7 @@ mod tests {
 
     #[test]
     fn test_tool_cache_control_on_last_tool() {
-        use crate::client_common::tools::ResponsesApiTool;
+        use codex_tools::ResponsesApiTool;
         use crate::tools::spec::JsonSchema;
 
         let tools = vec![
@@ -2255,7 +2255,7 @@ mod translator_tests {
 
     #[test]
     fn cache_control_on_last_tool_block() {
-        use crate::client_common::tools::ResponsesApiTool;
+        use codex_tools::ResponsesApiTool;
         use crate::tools::spec::JsonSchema;
 
         let tools = vec![
