@@ -94,10 +94,10 @@ trust_level = "trusted"
         .env("CODEX_RS_SSE_FIXTURE", fixture_path)
         .env("OPENAI_BASE_URL", "http://unused.local")
         .output()
-        .context("failed to execute codex exec")?;
+        .context("failed to execute xli exec")?;
     anyhow::ensure!(
         exec_output.status.success(),
-        "codex exec failed: {}",
+        "xli exec failed: {}",
         String::from_utf8_lossy(&exec_output.stderr)
     );
 
