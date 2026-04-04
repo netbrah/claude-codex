@@ -1,7 +1,7 @@
 //! Translators between codex-rs internal types and the Anthropic `/messages`
 //! wire format.
 
-use crate::client_common::tools::ToolSpec;
+use codex_tools::ToolSpec;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::ResponseItem;
@@ -422,8 +422,9 @@ pub(crate) fn tools_to_anthropic_format(tools: &[ToolSpec]) -> Vec<Value> {
         .collect();
 
     if let Some(last) = result.last_mut() {
-        last.as_object_mut()
-            .map(|obj| obj.insert("cache_control".to_owned(), json!({"type": "ephemeral"})));
+        if let Some(obj) = last.as_object_mut() {
+            obj.insert("cache_control".to_owned(), json!({"type": "ephemeral"}));
+        }
     }
     result
 }
@@ -571,8 +572,8 @@ mod tests {
 
     #[test]
     fn test_tools_translation() {
-        use crate::client_common::tools::ResponsesApiTool;
-        use crate::tools::spec::JsonSchema;
+        use codex_tools::ResponsesApiTool;
+        use codex_tools::JsonSchema;
 
         let tools = vec![ToolSpec::Function(ResponsesApiTool {
             name: "shell".to_string(),
@@ -971,8 +972,8 @@ mod tests {
 
     #[test]
     fn test_tool_cache_control_on_last_tool() {
-        use crate::client_common::tools::ResponsesApiTool;
-        use crate::tools::spec::JsonSchema;
+        use codex_tools::ResponsesApiTool;
+        use codex_tools::JsonSchema;
 
         let tools = vec![
             ToolSpec::Function(ResponsesApiTool {
@@ -2264,8 +2265,8 @@ mod translator_tests {
 
     #[test]
     fn cache_control_on_last_tool_block() {
-        use crate::client_common::tools::ResponsesApiTool;
-        use crate::tools::spec::JsonSchema;
+        use codex_tools::ResponsesApiTool;
+        use codex_tools::JsonSchema;
 
         let tools = vec![
             ToolSpec::Function(ResponsesApiTool {

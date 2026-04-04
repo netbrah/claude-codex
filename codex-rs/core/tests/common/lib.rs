@@ -181,7 +181,7 @@ pub fn fetch_dotslash_file(
 
 /// Returns a default `Config` whose on-disk state is confined to the provided
 /// temporary directory. Using a per-test directory keeps tests hermetic and
-/// avoids clobbering a developer’s real `~/.codex`.
+/// avoids clobbering a developer’s real `~/.xli`.
 pub async fn load_default_config_for_test(codex_home: &TempDir) -> Config {
     ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
@@ -287,7 +287,7 @@ where
     F: Fn(&codex_protocol::protocol::EventMsg) -> Option<T>,
 {
     let ev = wait_for_event(codex, |ev| matcher(ev).is_some()).await;
-    matcher(&ev).unwrap()
+    matcher(&ev).expect("EventMsg should match matcher predicate")
 }
 
 pub async fn wait_for_event_with_timeout<F>(
@@ -417,7 +417,7 @@ pub mod fs_wait {
         let deadline = Instant::now() + timeout;
         loop {
             if path.exists() {
-                return Ok(path.clone());
+                return Ok(path);
             }
             let now = Instant::now();
             if now >= deadline {
@@ -427,7 +427,7 @@ pub mod fs_wait {
             match rx.recv_timeout(remaining) {
                 Ok(Ok(_event)) => {
                     if path.exists() {
-                        return Ok(path.clone());
+                        return Ok(path);
                     }
                 }
                 Ok(Err(err)) => return Err(err.into()),
