@@ -192,7 +192,7 @@ macro_rules! client_request_definitions {
             out_dir: &::std::path::Path,
         ) -> ::std::result::Result<(), ::ts_rs::ExportError> {
             $(
-                <$response as ::ts_rs::TS>::export_all_to(out_dir)?;
+                <$response as ::ts_rs::TS>::export_all(&ts_rs::Config::new().with_out_dir(out_dir))?;
             )*
             Ok(())
         }
@@ -633,7 +633,7 @@ macro_rules! server_request_definitions {
             out_dir: &::std::path::Path,
         ) -> ::std::result::Result<(), ::ts_rs::ExportError> {
             $(
-                <$response as ::ts_rs::TS>::export_all_to(out_dir)?;
+                <$response as ::ts_rs::TS>::export_all(&ts_rs::Config::new().with_out_dir(out_dir))?;
             )*
             Ok(())
         }
