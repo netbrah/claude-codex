@@ -137,9 +137,26 @@ pub(crate) fn map_api_error(err: ApiError) -> CodexErr {
             }
         },
         ApiError::RateLimit(msg) => {
-            // Map to Stream so the backoff/retry loop in the turn runner
-            // can retry the request after a delay.
-            CodexErr::Stream(msg, None)
+            // Distinguish permanent plan/quota exhaustion from transient rate-limit
+            // spikes. Permanent limits should kill the session immediately; transient
+            // ones feed into the backoff/retry loop via CodexErr::Stream.
+            let lower = msg.to_ascii_lowercase();
+            if lower.contains("plan")
+                || lower.contains("quota")
+                || lower.contains("budget")
+                || lower.contains("usage_limit")
+                || lower.contains("limit exceeded")
+            {
+                CodexErr::RetryLimit(RetryLimitReachedError {
+                    status: http::StatusCode::TOO_MANY_REQUESTS,
+                    request_id: None,
+                })
+            } else {
+                // Transient rate limit — parse "try again in Ns" if present,
+                // otherwise let the caller use exponential backoff.
+                let delay = parse_retry_after_from_message(&msg);
+                CodexErr::Stream(msg, delay)
+            }
         }
     }
 }
@@ -154,6 +171,27 @@ const X_ERROR_JSON_HEADER: &str = "x-error-json";
 #[cfg(test)]
 #[path = "api_bridge_tests.rs"]
 mod tests;
+
+/// Attempt to extract a retry delay from a rate-limit message such as
+/// "Rate limit reached … Please try again in 11.054s."
+fn parse_retry_after_from_message(msg: &str) -> Option<std::time::Duration> {
+    static RE: std::sync::OnceLock<regex_lite::Regex> = std::sync::OnceLock::new();
+    #[expect(clippy::unwrap_used)]
+    let re = RE.get_or_init(|| {
+        regex_lite::Regex::new(r"(?i)try again in\s*(\d+(?:\.\d+)?)\s*(s|ms|seconds?)").unwrap()
+    });
+
+    let captures = re.captures(msg)?;
+    let value: f64 = captures.get(1)?.as_str().parse().ok()?;
+    let unit = captures.get(2)?.as_str().to_ascii_lowercase();
+
+    if unit == "ms" {
+        Some(std::time::Duration::from_millis(value as u64))
+    } else {
+        // "s", "second", "seconds"
+        Some(std::time::Duration::from_secs_f64(value))
+    }
+}
 
 fn extract_request_tracking_id(headers: Option<&HeaderMap>) -> Option<String> {
     extract_request_id(headers).or_else(|| extract_header(headers, CF_RAY_HEADER))
