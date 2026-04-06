@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use crate::codex::PreviousTurnSettings;
 use crate::codex::SessionConfiguration;
 use crate::context_manager::ContextManager;
+use crate::loop_detection::LoopDetector;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::TokenUsage;
@@ -37,6 +38,8 @@ pub(crate) struct SessionState {
     /// Reset on any successful (non-null) completion. Used as circuit breaker
     /// to detect death spirals where the model repeatedly produces empty responses.
     pub(crate) consecutive_null_completions: u32,
+    /// Detects infinite tool-call and content-repetition loops.
+    pub(crate) loop_detector: LoopDetector,
 }
 
 impl SessionState {
@@ -56,6 +59,7 @@ impl SessionState {
             pending_session_start_source: None,
             granted_permissions: None,
             consecutive_null_completions: 0,
+            loop_detector: LoopDetector::new(),
         }
     }
 

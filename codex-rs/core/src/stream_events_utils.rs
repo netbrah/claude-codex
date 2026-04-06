@@ -192,6 +192,9 @@ pub(crate) struct OutputItemResult {
     pub last_agent_message: Option<String>,
     pub needs_follow_up: bool,
     pub tool_future: Option<InFlightFuture<'static>>,
+    /// Set to `true` when the loop detector identifies a repetitive tool-call
+    /// or content pattern. The caller should inject a loop-breaking message.
+    pub loop_detected: bool,
 }
 
 pub(crate) struct HandleOutputCtx {
@@ -224,6 +227,20 @@ pub(crate) async fn handle_output_item_done(
                 call.tool_name,
                 payload_preview
             );
+
+            // Record the tool call for loop detection.
+            if ctx
+                .sess
+                .record_tool_call_for_loop_detection(&call.tool_name, &payload_preview)
+                .await
+            {
+                tracing::warn!(
+                    thread_id = %ctx.sess.conversation_id,
+                    tool_name = %call.tool_name,
+                    "Loop detected: repeated tool call"
+                );
+                output.loop_detected = true;
+            }
 
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
@@ -268,6 +285,21 @@ pub(crate) async fn handle_output_item_done(
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
             let last_agent_message = last_assistant_message_from_item(&item, plan_mode);
+
+            // Record assistant content for loop detection.
+            if let Some(ref content) = last_agent_message {
+                if ctx
+                    .sess
+                    .record_content_for_loop_detection(content)
+                    .await
+                {
+                    tracing::warn!(
+                        thread_id = %ctx.sess.conversation_id,
+                        "Loop detected: repeated assistant content"
+                    );
+                    output.loop_detected = true;
+                }
+            }
 
             output.last_agent_message = last_agent_message;
         }
