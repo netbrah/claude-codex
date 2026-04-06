@@ -1,3 +1,5 @@
+> **STATUS: ✅ COMPLETE** — This sortie has been implemented and merged. Kept for reference.
+
 # S-020 — /messages Wire Unit Test Coverage (Sub-A/B)
 
 **Priority:** 🔴 Ship-Blocking

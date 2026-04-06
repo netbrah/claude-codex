@@ -27,6 +27,7 @@ use crate::create_image_generation_tool;
 use crate::create_js_repl_reset_tool;
 use crate::create_js_repl_tool;
 use crate::create_list_agents_tool;
+use crate::create_analyze_symbol_source_tool;
 use crate::create_list_dir_tool;
 use crate::create_list_mcp_resource_templates_tool;
 use crate::create_list_mcp_resources_tool;
@@ -296,6 +297,19 @@ pub fn build_tool_registry_plan(
             config.code_mode_enabled,
         );
         plan.register_handler("list_dir", ToolHandlerKind::ListDir);
+    }
+
+    if config
+        .experimental_supported_tools
+        .iter()
+        .any(|tool| tool == "analyze_symbol_source")
+    {
+        plan.push_spec(
+            create_analyze_symbol_source_tool(),
+            /*supports_parallel_tool_calls*/ true,
+            config.code_mode_enabled,
+        );
+        plan.register_handler("analyze_symbol_source", ToolHandlerKind::AnalyzeSymbolSource);
     }
 
     if config

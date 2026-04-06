@@ -38,6 +38,7 @@ pub enum ToolHandlerKind {
     ToolSearch,
     ToolSuggest,
     UnifiedExec,
+    AnalyzeSymbolSource,
     ViewImage,
     WaitAgentV1,
     WaitAgentV2,

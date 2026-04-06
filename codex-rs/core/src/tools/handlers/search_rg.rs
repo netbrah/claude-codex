@@ -24,7 +24,7 @@ use tokio::time::timeout;
 
 use super::manifest_builder::filter_manifest;
 
-pub(super) const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const COMMAND_TIMEOUT: Duration = Duration::from_secs(200);
 
 /// Filter the workspace manifest to files under `scope_path` and write
 /// them to a temporary file suitable for passing to `rg --files-from`.

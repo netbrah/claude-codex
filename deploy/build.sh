@@ -13,14 +13,15 @@ set -euo pipefail
 # ============================================================================
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-CODEX="$ROOT/codex/codex-rs"
+REPO="$(cd "$ROOT/.." && pwd)"
+CODEX="$REPO/codex-rs"
 SKILLS="$ROOT/skills"
 NPM="$ROOT/npm"
 SAMPLES="$CODEX/skills/src/assets/samples"
 
 VERSION="${VERSION:-0.1.0}"
 MAC_TRIPLE="aarch64-apple-darwin"
-LINUX_TRIPLE="x86_64-unknown-linux-musl"
+LINUX_TRIPLE="x86_64-unknown-linux-gnu"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,27 +61,8 @@ build_mac() {
 }
 
 build_linux() {
-    info "Building Linux x86_64 (cross)..."
-    cd "$CODEX"
-
-    # Prefer zigbuild (no Docker needed), fall back to cross
-    if command -v cargo-zigbuild &>/dev/null; then
-        cargo zigbuild --release -p codex-cli --target "$LINUX_TRIPLE" 2>&1 | tail -3
-    elif command -v cross &>/dev/null; then
-        cross build --release -p codex-cli --target "$LINUX_TRIPLE" 2>&1 | tail -3
-    else
-        die "Need cargo-zigbuild or cross for Linux builds"
-    fi
-
-    local bin="$CODEX/target/$LINUX_TRIPLE/release/xli"
-    [ -f "$bin" ] || die "Linux build failed"
-
-    local dest="$NPM/vendor/$LINUX_TRIPLE/xli"
-    mkdir -p "$dest"
-    cp "$bin" "$dest/xli"
-    # Don't strip cross-compiled — may need linux strip
-    chmod +x "$dest/xli"
-    ok "Linux x86_64: $(du -h "$dest/xli" | cut -f1)"
+    info "Building Linux x86_64 (remote)..."
+    "$ROOT/remote-build.sh" || die "Remote Linux build failed"
 }
 
 do_pack() {

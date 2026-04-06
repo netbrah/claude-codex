@@ -96,3 +96,10 @@ api-reference
 
 # Superset worktree config
 .superset/
+
+# XLI build artifacts
+deploy/npm/vendor/
+codex-rs/docker-deps/
+
+# Nested git repos
+xli/

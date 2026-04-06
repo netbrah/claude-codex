@@ -1,3 +1,5 @@
+> **STATUS: ✅ COMPLETE** — This sortie has been implemented and merged. Kept for reference.
+
 # S-005 — Port Orphaned Tool Call Cleanup (TS → Rust)
 
 **Priority:** 🟠 P1 — Cross-Pollination

@@ -276,8 +276,49 @@ pub(crate) async fn apply_requested_spawn_agent_model_overrides(
     turn: &TurnContext,
     config: &mut Config,
     requested_model: Option<&str>,
+    requested_model_provider: Option<&str>,
     requested_reasoning_effort: Option<ReasoningEffort>,
 ) -> Result<(), FunctionCallError> {
+    // Auto-resolve provider: explicit override first, then routing table
+    let effective_provider_id = requested_model_provider
+        .map(str::to_string)
+        .or_else(|| {
+            // If a model is being changed, check the routing table
+            requested_model.and_then(|model| {
+                config
+                    .model_provider_routing
+                    .iter()
+                    .find(|(pattern, _)| glob_match(pattern, model))
+                    .map(|(_, provider_id)| provider_id.clone())
+            })
+        });
+
+    if let Some(provider_id) = &effective_provider_id {
+        let provider_info = config
+            .model_providers
+            .get(provider_id.as_str())
+            .cloned()
+            .ok_or_else(|| {
+                FunctionCallError::RespondToModel(format!(
+                    "Model provider `{provider_id}` not found. Available providers: {}",
+                    config
+                        .model_providers
+                        .keys()
+                        .map(|k| k.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+            })?;
+        tracing::info!(
+            provider_id = provider_id.as_str(),
+            wire_api = %provider_info.wire_api,
+            has_http_headers = provider_info.http_headers.is_some(),
+            "spawn_agent: resolved model provider via routing"
+        );
+        config.model_provider_id = provider_id.clone();
+        config.model_provider = provider_info;
+    }
+
     if requested_model.is_none() && requested_reasoning_effort.is_none() {
         return Ok(());
     }
@@ -362,4 +403,14 @@ fn validate_spawn_agent_reasoning_effort(
     Err(FunctionCallError::RespondToModel(format!(
         "Reasoning effort `{requested_reasoning_effort}` is not supported for model `{model}`. Supported reasoning efforts: {supported}"
     )))
+}
+
+/// Simple glob matching supporting only `*` as a wildcard suffix.
+/// e.g. "claude-*" matches "claude-opus-4.6", "gpt-*" matches "gpt-5.3-codex".
+fn glob_match(pattern: &str, value: &str) -> bool {
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        value.starts_with(prefix)
+    } else {
+        pattern == value
+    }
 }

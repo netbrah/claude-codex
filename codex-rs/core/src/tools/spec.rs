@@ -222,6 +222,9 @@ pub use crate::tools::handlers::AnalyzeSymbolSourceHandler;
             ToolHandlerKind::UnifiedExec => {
                 builder.register_handler(handler.name, unified_exec_handler.clone());
             }
+            ToolHandlerKind::AnalyzeSymbolSource => {
+                builder.register_handler(handler.name, Arc::new(AnalyzeSymbolSourceHandler));
+            }
             ToolHandlerKind::ViewImage => {
                 builder.register_handler(handler.name, view_image_handler.clone());
             }

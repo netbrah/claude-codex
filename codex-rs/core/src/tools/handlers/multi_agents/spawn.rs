@@ -66,6 +66,7 @@ impl ToolHandler for Handler {
             turn.as_ref(),
             &mut config,
             args.model.as_deref(),
+            None,
             args.reasoning_effort,
         )
         .await?;

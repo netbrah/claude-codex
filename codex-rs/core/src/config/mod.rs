@@ -394,6 +394,9 @@ pub struct Config {
     /// Combined provider map (defaults plus user-defined providers).
     pub model_providers: HashMap<String, ModelProviderInfo>,
 
+    /// Maps model name glob patterns to provider IDs for automatic resolution.
+    pub model_provider_routing: HashMap<String, String>,
+
     /// Maximum number of bytes to include from an AGENTS.md project doc file.
     pub project_doc_max_bytes: usize,
 
@@ -1248,6 +1251,13 @@ pub struct ConfigToml {
     /// IDs cannot be overridden.
     #[serde(default, deserialize_with = "deserialize_model_providers")]
     pub model_providers: HashMap<String, ModelProviderInfo>,
+
+    /// Maps model name glob patterns to provider IDs for automatic provider
+    /// resolution when spawning subagents with a different model. Keys are
+    /// glob-style patterns (e.g. `"claude-*"`) and values are keys into
+    /// `model_providers`.
+    #[serde(default)]
+    pub model_provider_routing: HashMap<String, String>,
 
     /// Maximum number of bytes to include from an AGENTS.md project doc file.
     pub project_doc_max_bytes: Option<usize>,
@@ -2680,6 +2690,7 @@ impl Config {
             mcp_oauth_callback_port: cfg.mcp_oauth_callback_port,
             mcp_oauth_callback_url: cfg.mcp_oauth_callback_url.clone(),
             model_providers,
+            model_provider_routing: cfg.model_provider_routing,
             project_doc_max_bytes: cfg.project_doc_max_bytes.unwrap_or(PROJECT_DOC_MAX_BYTES),
             project_doc_fallback_filenames: cfg
                 .project_doc_fallback_filenames
