@@ -133,6 +133,7 @@ pub use tool_suggest::ToolSuggestResult;
 pub use tool_suggest::all_suggested_connectors_picked_up;
 pub use tool_suggest::build_tool_suggestion_elicitation_request;
 pub use tool_suggest::verified_connector_suggestion_completed;
+pub use utility_tool::create_find_files_tool;
 pub use utility_tool::create_list_dir_tool;
 pub use utility_tool::create_test_sync_tool;
 pub use view_image::ViewImageToolOptions;
