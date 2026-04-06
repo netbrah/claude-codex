@@ -141,3 +141,126 @@ fn core_auth_provider_reports_when_auth_header_will_attach() {
     assert!(auth.auth_header_attached());
     assert_eq!(auth.auth_header_name(), Some("authorization"));
 }
+
+// ---------------------------------------------------------------------------
+// Rate-limit → retryable vs non-retryable tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rate_limit_transient_message_is_retryable() {
+    let err = map_api_error(ApiError::RateLimit("Rate limited".to_string()));
+    assert!(
+        err.is_retryable(),
+        "transient rate limit should be retryable, got {err:?}"
+    );
+    assert!(
+        matches!(err, CodexErr::Stream(..)),
+        "expected CodexErr::Stream, got {err:?}"
+    );
+}
+
+#[test]
+fn rate_limit_plan_limit_exceeded_is_not_retryable() {
+    let err = map_api_error(ApiError::RateLimit(
+        "plan limit exceeded, please upgrade".to_string(),
+    ));
+    assert!(
+        !err.is_retryable(),
+        "permanent plan limit should NOT be retryable, got {err:?}"
+    );
+    assert!(
+        matches!(err, CodexErr::RetryLimit(..)),
+        "expected CodexErr::RetryLimit, got {err:?}"
+    );
+}
+
+#[test]
+fn rate_limit_quota_exhausted_is_not_retryable() {
+    let err = map_api_error(ApiError::RateLimit(
+        "Your quota has been exhausted".to_string(),
+    ));
+    assert!(
+        !err.is_retryable(),
+        "permanent quota exhaustion should NOT be retryable, got {err:?}"
+    );
+    assert!(
+        matches!(err, CodexErr::RetryLimit(..)),
+        "expected CodexErr::RetryLimit, got {err:?}"
+    );
+}
+
+#[test]
+fn rate_limit_budget_is_not_retryable() {
+    let err = map_api_error(ApiError::RateLimit("budget exceeded".to_string()));
+    assert!(
+        !err.is_retryable(),
+        "budget exhaustion should NOT be retryable, got {err:?}"
+    );
+}
+
+#[test]
+fn rate_limit_usage_limit_is_not_retryable() {
+    let err = map_api_error(ApiError::RateLimit(
+        "usage_limit reached for this account".to_string(),
+    ));
+    assert!(!err.is_retryable());
+    assert!(matches!(err, CodexErr::RetryLimit(..)));
+}
+
+#[test]
+fn rate_limit_with_retry_after_parses_delay() {
+    let msg =
+        "Rate limit reached for gpt-5.1 on tokens per min (TPM). Please try again in 11.054s."
+            .to_string();
+    let err = map_api_error(ApiError::RateLimit(msg));
+    assert!(err.is_retryable(), "should be retryable, got {err:?}");
+    match &err {
+        CodexErr::Stream(_, Some(delay)) => {
+            // 11.054s ± small float tolerance
+            assert!(
+                delay.as_secs_f64() > 11.0 && delay.as_secs_f64() < 11.1,
+                "expected ~11.054s delay, got {delay:?}"
+            );
+        }
+        other => panic!("expected CodexErr::Stream with delay, got {other:?}"),
+    }
+}
+
+#[test]
+fn rate_limit_without_retry_after_has_no_delay() {
+    let err = map_api_error(ApiError::RateLimit("Rate limited".to_string()));
+    match &err {
+        CodexErr::Stream(_, delay) => {
+            assert!(delay.is_none(), "expected no delay, got {delay:?}");
+        }
+        other => panic!("expected CodexErr::Stream, got {other:?}"),
+    }
+}
+
+#[test]
+fn rate_limit_case_insensitive_detection() {
+    // "Plan" with uppercase should still be caught
+    let err = map_api_error(ApiError::RateLimit("Plan limit exceeded".to_string()));
+    assert!(!err.is_retryable());
+    assert!(matches!(err, CodexErr::RetryLimit(..)));
+}
+
+#[test]
+fn parse_retry_after_from_message_parses_seconds() {
+    let delay = parse_retry_after_from_message("Please try again in 5.2s.");
+    assert!(delay.is_some());
+    let d = delay.unwrap();
+    assert!(d.as_secs_f64() > 5.1 && d.as_secs_f64() < 5.3);
+}
+
+#[test]
+fn parse_retry_after_from_message_parses_milliseconds() {
+    let delay = parse_retry_after_from_message("try again in 500ms");
+    assert_eq!(delay, Some(std::time::Duration::from_millis(500)));
+}
+
+#[test]
+fn parse_retry_after_from_message_returns_none_for_unrelated_text() {
+    let delay = parse_retry_after_from_message("something unrelated");
+    assert!(delay.is_none());
+}
