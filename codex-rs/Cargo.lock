@@ -2149,6 +2149,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossbeam-channel",
+ "dirs",
  "ignore",
  "nucleo",
  "pretty_assertions",

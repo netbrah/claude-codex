@@ -110,6 +110,14 @@ pub struct FileSearchOptions {
     /// turns off `.gitignore`, git-global/exclude rules, `.ignore`, and
     /// parent-directory ignore scanning.
     pub respect_gitignore: bool,
+    /// When `true`, load `~/.ignore` (if it exists) as a global ignore file
+    /// so that its patterns are applied to every search regardless of the
+    /// search directory.  The file uses the same gitignore syntax.
+    ///
+    /// This is independent of `respect_gitignore` — you can disable
+    /// `.gitignore` processing while still honouring `~/.ignore`, and vice
+    /// versa.
+    pub respect_global_ignore: bool,
 }
 
 impl Default for FileSearchOptions {
@@ -122,6 +130,7 @@ impl Default for FileSearchOptions {
             threads: NonZero::new(2).unwrap(),
             compute_indices: false,
             respect_gitignore: true,
+            respect_global_ignore: true,
         }
     }
 }
@@ -167,6 +176,7 @@ pub fn create_session(
         threads,
         compute_indices,
         respect_gitignore,
+        respect_global_ignore,
     } = options;
 
     let Some(primary_search_directory) = search_directories.first() else {
@@ -195,6 +205,7 @@ pub fn create_session(
         threads: threads.get(),
         compute_indices,
         respect_gitignore,
+        respect_global_ignore,
         cancelled,
         shutdown: Arc::new(AtomicBool::new(false)),
         reporter,
@@ -225,6 +236,7 @@ pub async fn run_main<T: Reporter>(
         json: _,
         exclude,
         threads,
+        no_global_ignore,
     }: Cli,
     reporter: T,
 ) -> anyhow::Result<()> {
@@ -270,6 +282,7 @@ pub async fn run_main<T: Reporter>(
             threads,
             compute_indices,
             respect_gitignore: true,
+            respect_global_ignore: !no_global_ignore,
         },
         /*cancel_flag*/ None,
     )?;
@@ -348,6 +361,7 @@ struct SessionInner {
     threads: usize,
     compute_indices: bool,
     respect_gitignore: bool,
+    respect_global_ignore: bool,
     cancelled: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
     reporter: Arc<dyn SessionReporter>,
@@ -408,6 +422,10 @@ fn get_file_path<'a>(path: &'a Path, search_directories: &[PathBuf]) -> Option<(
 ///
 /// When `respect_gitignore` is `false`, all git-related ignore processing is
 /// disabled regardless of this flag.
+///
+/// When `respect_global_ignore` is `true`, the walker explicitly loads
+/// `~/.ignore` (if it exists) so its patterns apply to every search
+/// regardless of directory ancestry.
 fn walker_worker(
     inner: Arc<SessionInner>,
     override_matcher: Option<ignore::overrides::Override>,
@@ -438,6 +456,16 @@ fn walker_worker(
             .git_exclude(false)
             .ignore(false)
             .parents(false);
+    }
+    // Explicitly load ~/.ignore when requested so its patterns apply
+    // regardless of the search directory's position relative to $HOME.
+    if inner.respect_global_ignore {
+        if let Some(home) = dirs::home_dir() {
+            let global_ignore = home.join(".ignore");
+            if global_ignore.is_file() {
+                let _ = walk_builder.add_ignore(&global_ignore);
+            }
+        }
     }
     if let Some(override_matcher) = override_matcher {
         walk_builder.overrides(override_matcher);
@@ -966,6 +994,7 @@ mod tests {
             threads: NonZero::new(2).unwrap(),
             compute_indices: false,
             respect_gitignore: true,
+            respect_global_ignore: false,
         };
         let results = run(
             "file-000",
@@ -1001,6 +1030,7 @@ mod tests {
                 threads: NonZero::new(2).unwrap(),
                 compute_indices: false,
                 respect_gitignore: true,
+                respect_global_ignore: false,
             },
             /*cancel_flag*/ None,
         )
@@ -1069,6 +1099,7 @@ mod tests {
                 threads: NonZero::new(2).unwrap(),
                 compute_indices: false,
                 respect_gitignore: true,
+                respect_global_ignore: false,
             },
             /*cancel_flag*/ None,
         )
@@ -1089,6 +1120,7 @@ mod tests {
                 threads: NonZero::new(2).unwrap(),
                 compute_indices: false,
                 respect_gitignore: true,
+                respect_global_ignore: false,
             },
             /*cancel_flag*/ None,
         )
@@ -1133,6 +1165,7 @@ mod tests {
                 threads: NonZero::new(2).unwrap(),
                 compute_indices: false,
                 respect_gitignore: true,
+                respect_global_ignore: false,
             },
             /*cancel_flag*/ None,
         )
@@ -1153,6 +1186,7 @@ mod tests {
                 threads: NonZero::new(2).unwrap(),
                 compute_indices: false,
                 respect_gitignore: true,
+                respect_global_ignore: false,
             },
             /*cancel_flag*/ None,
         )
@@ -1173,6 +1207,7 @@ mod tests {
                 threads: NonZero::new(2).unwrap(),
                 compute_indices: false,
                 respect_gitignore: true,
+                respect_global_ignore: false,
             },
             /*cancel_flag*/ None,
         )
@@ -1183,5 +1218,86 @@ mod tests {
                 .iter()
                 .any(|m| m.path.as_path() == Path::new(".vscode/settings.json"))
         );
+    }
+
+    /// Verifies that `respect_global_ignore: true` loads `~/.ignore` and
+    /// excludes matching files, while `respect_global_ignore: false` does not.
+    ///
+    /// Uses `$HOME` override to point at a temporary directory so the test is
+    /// deterministic and does not depend on the real user's `~/.ignore`.
+    #[test]
+    fn global_ignore_file_excludes_matching_files() {
+        let home = tempfile::tempdir().unwrap();
+        let project = home.path().join("project");
+        fs::create_dir_all(&project).unwrap();
+
+        // Write a global ~/.ignore that excludes *.log files.
+        fs::write(home.path().join(".ignore"), "*.log\n").unwrap();
+
+        fs::write(project.join("app.rs"), "fn main() {}").unwrap();
+        fs::write(project.join("debug.log"), "some log output").unwrap();
+
+        // Temporarily override HOME so dirs::home_dir() returns our temp dir.
+        let prev_home = std::env::var("HOME").ok();
+        // SAFETY: This test runs with --test-threads=1 to avoid races with
+        // other tests that may read environment variables.
+        unsafe {
+            std::env::set_var("HOME", home.path());
+        }
+
+        // With global ignore enabled, *.log should be excluded.
+        let with_global = run(
+            "debug",
+            vec![project.clone()],
+            FileSearchOptions {
+                limit: NonZero::new(20).unwrap(),
+                exclude: Vec::new(),
+                threads: NonZero::new(2).unwrap(),
+                compute_indices: false,
+                respect_gitignore: false,
+                respect_global_ignore: true,
+            },
+            /*cancel_flag*/ None,
+        )
+        .expect("run ok");
+        assert!(
+            !with_global
+                .matches
+                .iter()
+                .any(|m| m.path.as_path() == Path::new("debug.log")),
+            "debug.log should be excluded by ~/.ignore"
+        );
+
+        // With global ignore disabled, *.log should be visible.
+        let without_global = run(
+            "debug",
+            vec![project],
+            FileSearchOptions {
+                limit: NonZero::new(20).unwrap(),
+                exclude: Vec::new(),
+                threads: NonZero::new(2).unwrap(),
+                compute_indices: false,
+                respect_gitignore: false,
+                respect_global_ignore: false,
+            },
+            /*cancel_flag*/ None,
+        )
+        .expect("run ok");
+        assert!(
+            without_global
+                .matches
+                .iter()
+                .any(|m| m.path.as_path() == Path::new("debug.log")),
+            "debug.log should be visible without global ignore"
+        );
+
+        // Restore HOME.
+        // SAFETY: Same rationale as above — single-threaded test execution.
+        unsafe {
+            match prev_home {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
+        }
     }
 }

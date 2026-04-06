@@ -37,6 +37,10 @@ pub struct Cli {
     #[arg(short, long, action = ArgAction::Append)]
     pub exclude: Vec<String>,
 
+    /// Disable loading ~/.ignore as a global ignore file.
+    #[arg(long, default_value = "false")]
+    pub no_global_ignore: bool,
+
     /// Search pattern.
     pub pattern: Option<String>,
 }

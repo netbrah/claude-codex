@@ -88,6 +88,7 @@ impl ToolHandler for FindFilesHandler {
             .unwrap(),
             compute_indices: false,
             respect_gitignore: true,
+            respect_global_ignore: true,
         };
 
         let pattern_clone = pattern.clone();
