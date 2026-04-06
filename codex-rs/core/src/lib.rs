@@ -46,6 +46,7 @@ mod git_info_tests;
 mod guardian;
 mod hook_runtime;
 pub mod instructions;
+mod loop_detection;
 pub mod landlock;
 pub mod mcp;
 mod mcp_skill_dependencies;

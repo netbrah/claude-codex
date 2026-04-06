@@ -2139,6 +2139,28 @@ impl Session {
         state.get_total_token_usage(state.server_reasoning_included())
     }
 
+    /// Record a tool call and return `true` if a repetitive loop is detected.
+    pub(crate) async fn record_tool_call_for_loop_detection(
+        &self,
+        tool_name: &str,
+        args: &str,
+    ) -> bool {
+        let mut state = self.state.lock().await;
+        state.loop_detector.record_tool_call(tool_name, args)
+    }
+
+    /// Record assistant content and return `true` if a repetitive loop is detected.
+    pub(crate) async fn record_content_for_loop_detection(&self, content: &str) -> bool {
+        let mut state = self.state.lock().await;
+        state.loop_detector.record_content(content)
+    }
+
+    /// Reset the loop detector after breaking out of a loop.
+    pub(crate) async fn reset_loop_detector(&self) {
+        let mut state = self.state.lock().await;
+        state.loop_detector.reset();
+    }
+
     pub(crate) async fn get_total_token_usage_breakdown(&self) -> TotalTokenUsageBreakdown {
         let state = self.state.lock().await;
         state.history.get_total_token_usage_breakdown()
@@ -6038,6 +6060,7 @@ pub(crate) async fn run_turn(
                 let SamplingRequestResult {
                     needs_follow_up,
                     last_agent_message: sampling_request_last_agent_message,
+                    loop_detected: sampling_loop_detected,
                 } = sampling_request_output;
                 let total_usage_tokens = sess.get_total_token_usage().await;
                 let token_limit_reached = total_usage_tokens >= auto_compact_limit;
@@ -6068,6 +6091,42 @@ pub(crate) async fn run_turn(
                         return None;
                     }
                     continue;
+                }
+
+                // Circuit breaker: detect infinite tool-call or content loops.
+                if sampling_loop_detected && needs_follow_up {
+                    use crate::loop_detection::LOOP_BREAK_MESSAGE;
+                    tracing::warn!(
+                        thread_id = %sess.conversation_id,
+                        "Breaking infinite loop — injecting loop-break message"
+                    );
+                    // Reset the detector so the model gets a clean slate.
+                    sess.reset_loop_detector().await;
+                    sess.send_event(
+                        &turn_context,
+                        EventMsg::Warning(WarningEvent {
+                            message: LOOP_BREAK_MESSAGE.to_string(),
+                        }),
+                    )
+                    .await;
+                    // Inject the loop-break message into the conversation so
+                    // the model sees it on the next sampling request.
+                    let break_item = ResponseItem::Message {
+                        id: None,
+                        role: "developer".to_string(),
+                        content: vec![ContentItem::InputText {
+                            text: LOOP_BREAK_MESSAGE.to_string(),
+                        }],
+                        end_turn: None,
+                        phase: None,
+                    };
+                    sess.record_conversation_items(
+                        &turn_context,
+                        std::slice::from_ref(&break_item),
+                    )
+                    .await;
+                    last_agent_message = None;
+                    break;
                 }
 
                 if !needs_follow_up {
@@ -6807,6 +6866,8 @@ pub(crate) async fn built_tools(
 struct SamplingRequestResult {
     needs_follow_up: bool,
     last_agent_message: Option<String>,
+    /// `true` when the loop detector fired during this sampling round.
+    loop_detected: bool,
 }
 
 /// Ephemeral per-response state for streaming a single proposed plan.
@@ -7389,6 +7450,7 @@ async fn try_run_sampling_request(
     let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
         FuturesOrdered::new();
     let mut needs_follow_up = false;
+    let mut loop_detected = false;
     let mut last_agent_message: Option<String> = None;
     let mut active_item: Option<TurnItem> = None;
     let mut should_emit_turn_diff = false;
@@ -7478,6 +7540,7 @@ async fn try_run_sampling_request(
                     last_agent_message = Some(agent_message);
                 }
                 needs_follow_up |= output_result.needs_follow_up;
+                loop_detected |= output_result.loop_detected;
             }
             ResponseEvent::OutputItemAdded(item) => {
                 if let Some(turn_item) = handle_non_tool_response_item(
@@ -7587,6 +7650,7 @@ async fn try_run_sampling_request(
                 break Ok(SamplingRequestResult {
                     needs_follow_up,
                     last_agent_message,
+                    loop_detected,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {
