@@ -1935,6 +1935,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sha1",
+ "sha2",
  "shlex",
  "similar",
  "tempfile",

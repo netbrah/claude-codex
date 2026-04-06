@@ -138,6 +138,7 @@ pub mod shell_snapshot;
 pub mod spawn;
 pub mod state_db_bridge;
 mod thread_rollout_truncation;
+pub mod tool_output_masking;
 mod tools;
 pub mod turn_diff_tracker;
 mod turn_metadata;
