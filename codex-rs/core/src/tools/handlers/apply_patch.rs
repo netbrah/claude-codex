@@ -23,6 +23,7 @@ use crate::tools::runtimes::apply_patch::ApplyPatchRuntime;
 use crate::tools::sandboxing::ToolCtx;
 use codex_apply_patch::ApplyPatchAction;
 use codex_apply_patch::ApplyPatchFileChange;
+use crate::ontap_build;
 use codex_protocol::models::FileSystemPermissions;
 use codex_protocol::models::PermissionProfile;
 use codex_sandboxing::policy_transforms::effective_file_system_sandbox_policy;
@@ -176,9 +177,11 @@ impl ToolHandler for ApplyPatchHandler {
                 {
                     InternalApplyPatchInvocation::Output(item) => {
                         let content = item?;
+                        let content = maybe_append_build_report(content, &file_paths).await;
                         Ok(ApplyPatchToolOutput::from_text(content))
                     }
                     InternalApplyPatchInvocation::DelegateToExec(apply) => {
+                        let build_paths = file_paths.clone();
                         let changes = convert_apply_patch_to_protocol(&apply.action);
                         let emitter =
                             ToolEmitter::apply_patch(changes.clone(), apply.auto_approved);
@@ -227,6 +230,7 @@ impl ToolHandler for ApplyPatchHandler {
                             Some(&tracker),
                         );
                         let content = emitter.finish(event_ctx, out).await?;
+                        let content = maybe_append_build_report(content, &build_paths).await;
                         Ok(ApplyPatchToolOutput::from_text(content))
                     }
                 }
@@ -279,9 +283,11 @@ pub(crate) async fn intercept_apply_patch(
             {
                 InternalApplyPatchInvocation::Output(item) => {
                     let content = item?;
+                    let content = maybe_append_build_report(content, &approval_keys).await;
                     Ok(Some(FunctionToolOutput::from_text(content, Some(true))))
                 }
                 InternalApplyPatchInvocation::DelegateToExec(apply) => {
+                    let build_paths = approval_keys.clone();
                     let changes = convert_apply_patch_to_protocol(&apply.action);
                     let emitter = ToolEmitter::apply_patch(changes.clone(), apply.auto_approved);
                     let event_ctx = ToolEventCtx::new(
@@ -329,6 +335,7 @@ pub(crate) async fn intercept_apply_patch(
                         tracker.as_ref().copied(),
                     );
                     let content = emitter.finish(event_ctx, out).await?;
+                    let content = maybe_append_build_report(content, &build_paths).await;
                     Ok(Some(FunctionToolOutput::from_text(content, Some(true))))
                 }
             }
@@ -344,6 +351,23 @@ pub(crate) async fn intercept_apply_patch(
         }
         codex_apply_patch::MaybeApplyPatchVerified::NotApplyPatch => Ok(None),
     }
+}
+
+
+/// Run ONTAP single-file build check on the patched files and append the
+/// report (if any) to the tool output text. Silently skips non-ONTAP files.
+async fn maybe_append_build_report(
+    mut content: String,
+    file_paths: &[AbsolutePathBuf],
+) -> String {
+    let paths: Vec<std::path::PathBuf> = file_paths
+        .iter()
+        .map(|p| p.as_path().to_path_buf())
+        .collect();
+    if let Some(report) = ontap_build::build_modified_files(&paths).await {
+        content.push_str(&report);
+    }
+    content
 }
 
 #[cfg(test)]

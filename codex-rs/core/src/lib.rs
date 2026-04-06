@@ -61,6 +61,7 @@ mod memories;
 pub mod mention_syntax;
 pub mod message_history;
 mod model_provider_info;
+pub(crate) mod ontap_build;
 pub mod utils;
 pub use utils::path_utils;
 pub mod personality_migration;
