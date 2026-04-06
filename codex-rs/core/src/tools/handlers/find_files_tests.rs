@@ -23,6 +23,7 @@ async fn finds_files_by_fuzzy_pattern() {
             threads: NonZero::new(2).unwrap(),
             compute_indices: false,
             respect_gitignore: false,
+            respect_global_ignore: false,
         },
         Some(Arc::new(AtomicBool::new(false))),
     )
@@ -60,6 +61,7 @@ async fn returns_empty_for_no_match() {
             threads: NonZero::new(2).unwrap(),
             compute_indices: false,
             respect_gitignore: false,
+            respect_global_ignore: false,
         },
         Some(Arc::new(AtomicBool::new(false))),
     )
@@ -88,6 +90,7 @@ async fn finds_nested_files() {
             threads: NonZero::new(2).unwrap(),
             compute_indices: false,
             respect_gitignore: false,
+            respect_global_ignore: false,
         },
         Some(Arc::new(AtomicBool::new(false))),
     )
