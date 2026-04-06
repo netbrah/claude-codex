@@ -153,11 +153,11 @@ pub(crate) fn conversation_to_anthropic_messages(input: &[ResponseItem], support
             ResponseItem::FunctionCallOutput {
                 call_id, output, ..
             } => {
-                let content_text = output_to_text(output);
+                let content = output_to_content(output, supports_image);
                 let block = json!({
                     "type": "tool_result",
                     "tool_use_id": call_id,
-                    "content": content_text,
+                    "content": content,
                 });
                 append_to_role(&mut messages, "user", vec![block]);
             }
@@ -184,11 +184,11 @@ pub(crate) fn conversation_to_anthropic_messages(input: &[ResponseItem], support
             ResponseItem::CustomToolCallOutput {
                 call_id, output, ..
             } => {
-                let content_text = output_to_text(output);
+                let content = output_to_content(output, supports_image);
                 let block = json!({
                     "type": "tool_result",
                     "tool_use_id": call_id,
-                    "content": content_text,
+                    "content": content,
                 });
                 append_to_role(&mut messages, "user", vec![block]);
             }
@@ -429,22 +429,79 @@ pub(crate) fn tools_to_anthropic_format(tools: &[ToolSpec]) -> Vec<Value> {
     result
 }
 
-fn output_to_text(output: &codex_protocol::models::FunctionCallOutputPayload) -> String {
+/// Converts a function-call output payload into an Anthropic-compatible
+/// `"content"` value for a `tool_result` block.
+///
+/// - **Text-only output** → a plain JSON string (fast path).
+/// - **ContentItems with images** → a JSON array of `text` / `image` content
+///   blocks, mirroring the same format used for user messages.
+/// - When `supports_image` is `false`, image items are replaced with a
+///   descriptive text placeholder so the request never fails on text-only
+///   models.
+fn output_to_content(
+    output: &codex_protocol::models::FunctionCallOutputPayload,
+    supports_image: bool,
+) -> Value {
+    use codex_protocol::models::FunctionCallOutputContentItem;
+
     match &output.body {
-        FunctionCallOutputBody::Text(text) => text.clone(),
-        FunctionCallOutputBody::ContentItems(items) => items
-            .iter()
-            .filter_map(|item| {
-                if let codex_protocol::models::FunctionCallOutputContentItem::InputText { text } =
-                    item
-                {
-                    Some(text.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
+        FunctionCallOutputBody::Text(text) => Value::String(text.clone()),
+        FunctionCallOutputBody::ContentItems(items) => {
+            let has_image = items
+                .iter()
+                .any(|i| matches!(i, FunctionCallOutputContentItem::InputImage { .. }));
+
+            if !has_image {
+                // Fast path: text-only content items — join into a single string.
+                let joined = items
+                    .iter()
+                    .filter_map(|item| {
+                        if let FunctionCallOutputContentItem::InputText { text } = item {
+                            Some(text.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Value::String(joined)
+            } else {
+                // Mixed or image-only: produce an array of content blocks.
+                let blocks: Vec<Value> = items
+                    .iter()
+                    .map(|item| match item {
+                        FunctionCallOutputContentItem::InputText { text } => {
+                            json!({ "type": "text", "text": text })
+                        }
+                        FunctionCallOutputContentItem::InputImage {
+                            image_url, ..
+                        } => {
+                            if supports_image {
+                                json!({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "url",
+                                        "url": image_url,
+                                    },
+                                })
+                            } else {
+                                tracing::debug!(
+                                    "modality gating: replacing tool-result image with text placeholder"
+                                );
+                                json!({
+                                    "type": "text",
+                                    "text": format!(
+                                        "[Image: content not shown — this model does not support image input. Original URL: {}]",
+                                        image_url
+                                    ),
+                                })
+                            }
+                        }
+                    })
+                    .collect();
+                Value::Array(blocks)
+            }
+        }
     }
 }
 
@@ -2052,6 +2109,196 @@ mod modality_gating_tests {
         // Third block: text preserved
         assert_eq!(content[2]["type"], "text");
         assert_eq!(content[2]["text"], "What do you see?");
+    }
+}
+
+// ── S-005: output_to_content image handling tests ───────────────────────
+
+#[cfg(test)]
+mod output_to_content_tests {
+    use super::*;
+    use codex_protocol::models::{
+        ContentItem, FunctionCallOutputContentItem, FunctionCallOutputPayload, ResponseItem,
+    };
+
+    /// Helper: build a minimal conversation with a single tool-call + tool-result
+    /// so we can inspect the translated `content` field of the `tool_result` block.
+    fn tool_result_content(
+        output: FunctionCallOutputPayload,
+        supports_image: bool,
+    ) -> Value {
+        let input = vec![
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "test_tool".to_string(),
+                namespace: None,
+                arguments: r#"{"a":1}"#.to_string(),
+                call_id: "toolu_01".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "toolu_01".to_string(),
+                output,
+            },
+        ];
+        let messages = conversation_to_anthropic_messages(&input, supports_image);
+        // The tool_result is in the user-role message (index 1, merged after
+        // the assistant tool_use at index 0).
+        let tool_result = &messages[1]["content"][0];
+        assert_eq!(tool_result["type"], "tool_result");
+        tool_result["content"].clone()
+    }
+
+    // ── Test 1: text-only output → plain string preserved ───────────────
+
+    #[test]
+    fn text_only_output_preserved() {
+        let content = tool_result_content(
+            FunctionCallOutputPayload::from_text("hello world".to_string()),
+            true,
+        );
+        assert_eq!(content, "hello world");
+    }
+
+    // ── Test 2: ContentItems with text only → joined string ─────────────
+
+    #[test]
+    fn content_items_text_only_joined() {
+        let content = tool_result_content(
+            FunctionCallOutputPayload::from_content_items(vec![
+                FunctionCallOutputContentItem::InputText {
+                    text: "line1".to_string(),
+                },
+                FunctionCallOutputContentItem::InputText {
+                    text: "line2".to_string(),
+                },
+            ]),
+            true,
+        );
+        assert_eq!(content, "line1\nline2");
+    }
+
+    // ── Test 3: image-only output on image-capable model → image block ──
+
+    #[test]
+    fn image_only_produces_image_block() {
+        let content = tool_result_content(
+            FunctionCallOutputPayload::from_content_items(vec![
+                FunctionCallOutputContentItem::InputImage {
+                    image_url: "https://example.com/photo.png".to_string(),
+                    detail: None,
+                },
+            ]),
+            true,
+        );
+        let blocks = content.as_array().expect("should be an array of content blocks");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["type"], "image");
+        assert_eq!(blocks[0]["source"]["type"], "url");
+        assert_eq!(blocks[0]["source"]["url"], "https://example.com/photo.png");
+    }
+
+    // ── Test 4: mixed text + image → array with both block types ────────
+
+    #[test]
+    fn mixed_text_and_image_produces_array() {
+        let content = tool_result_content(
+            FunctionCallOutputPayload::from_content_items(vec![
+                FunctionCallOutputContentItem::InputText {
+                    text: "Here is the screenshot:".to_string(),
+                },
+                FunctionCallOutputContentItem::InputImage {
+                    image_url: "data:image/png;base64,abc123".to_string(),
+                    detail: None,
+                },
+                FunctionCallOutputContentItem::InputText {
+                    text: "End of output".to_string(),
+                },
+            ]),
+            true,
+        );
+        let blocks = content.as_array().expect("should be an array");
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[0]["text"], "Here is the screenshot:");
+        assert_eq!(blocks[1]["type"], "image");
+        assert_eq!(blocks[1]["source"]["url"], "data:image/png;base64,abc123");
+        assert_eq!(blocks[2]["type"], "text");
+        assert_eq!(blocks[2]["text"], "End of output");
+    }
+
+    // ── Test 5: image on text-only model → placeholder text ─────────────
+
+    #[test]
+    fn image_on_text_only_model_replaced_with_placeholder() {
+        let content = tool_result_content(
+            FunctionCallOutputPayload::from_content_items(vec![
+                FunctionCallOutputContentItem::InputImage {
+                    image_url: "https://example.com/diagram.png".to_string(),
+                    detail: None,
+                },
+            ]),
+            false, // text-only model
+        );
+        let blocks = content.as_array().expect("should be an array");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["type"], "text");
+        let placeholder = blocks[0]["text"].as_str().unwrap();
+        assert!(
+            placeholder.contains("[Image:"),
+            "placeholder should indicate it was an image"
+        );
+        assert!(
+            placeholder.contains("https://example.com/diagram.png"),
+            "placeholder should include original URL"
+        );
+    }
+
+    // ── Test 6: empty content items → empty string ──────────────────────
+
+    #[test]
+    fn empty_content_items_produces_empty_string() {
+        let content = tool_result_content(
+            FunctionCallOutputPayload::from_content_items(vec![]),
+            true,
+        );
+        assert_eq!(content, "");
+    }
+
+    // ── Test 7: CustomToolCallOutput also handles images ────────────────
+
+    #[test]
+    fn custom_tool_call_output_with_image() {
+        let input = vec![
+            ResponseItem::CustomToolCall {
+                id: None,
+                status: None,
+                name: "my_tool".to_string(),
+                call_id: "toolu_custom".to_string(),
+                input: r#"{"x":1}"#.to_string(),
+            },
+            ResponseItem::CustomToolCallOutput {
+                call_id: "toolu_custom".to_string(),
+                name: None,
+                output: FunctionCallOutputPayload::from_content_items(vec![
+                    FunctionCallOutputContentItem::InputText {
+                        text: "caption".to_string(),
+                    },
+                    FunctionCallOutputContentItem::InputImage {
+                        image_url: "https://example.com/result.png".to_string(),
+                        detail: None,
+                    },
+                ]),
+            },
+        ];
+        let messages = conversation_to_anthropic_messages(&input, true);
+        let tool_result = &messages[1]["content"][0];
+        assert_eq!(tool_result["type"], "tool_result");
+        let blocks = tool_result["content"]
+            .as_array()
+            .expect("should be array with image");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[1]["type"], "image");
     }
 }
 
