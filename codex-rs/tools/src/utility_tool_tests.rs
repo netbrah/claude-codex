@@ -3,6 +3,45 @@ use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 
 #[test]
+fn find_files_tool_matches_expected_spec() {
+    assert_eq!(
+        create_find_files_tool(),
+        ToolSpec::Function(ResponsesApiTool {
+            name: "find_files".to_string(),
+            description:
+                "Fast fuzzy file search across directory trees. Finds files and directories by name using a fuzzy matching algorithm, respecting .gitignore rules. Useful for quickly locating files in large repositories without needing external tools like fd or find."
+                    .to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::Object {
+                properties: BTreeMap::from([
+                    (
+                        "path".to_string(),
+                        JsonSchema::String {
+                            description: Some(
+                                "Absolute path to the directory to search in. Defaults to the current working directory.".to_string(),
+                            ),
+                        },
+                    ),
+                    (
+                        "pattern".to_string(),
+                        JsonSchema::String {
+                            description: Some(
+                                "Fuzzy search pattern to match against file and directory paths."
+                                    .to_string(),
+                            ),
+                        },
+                    ),
+                ]),
+                required: Some(vec!["pattern".to_string()]),
+                additional_properties: Some(false.into()),
+            },
+            output_schema: None,
+        })
+    );
+}
+
+#[test]
 fn list_dir_tool_matches_expected_spec() {
     assert_eq!(
         create_list_dir_tool(),

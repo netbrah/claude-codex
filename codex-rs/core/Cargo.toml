@@ -41,6 +41,7 @@ codex-config = { workspace = true }
 codex-core-skills = { workspace = true }
 codex-exec-server = { workspace = true }
 codex-features = { workspace = true }
+codex-file-search = { workspace = true }
 codex-login = { workspace = true }
 codex-mcp = { workspace = true }
 codex-shell-command = { workspace = true }

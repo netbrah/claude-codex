@@ -17,6 +17,7 @@ pub enum ToolHandlerKind {
     CodeModeExecute,
     CodeModeWait,
     DynamicTool,
+    FindFiles,
     FollowupTaskV2,
     JsRepl,
     JsReplReset,

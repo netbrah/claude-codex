@@ -1866,6 +1866,7 @@ dependencies = [
  "codex-exec-server",
  "codex-execpolicy",
  "codex-features",
+ "codex-file-search",
  "codex-git-utils",
  "codex-hooks",
  "codex-instructions",

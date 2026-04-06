@@ -51,6 +51,42 @@ pub fn create_list_dir_tool() -> ToolSpec {
     })
 }
 
+pub fn create_find_files_tool() -> ToolSpec {
+    let properties = BTreeMap::from([
+        (
+            "pattern".to_string(),
+            JsonSchema::String {
+                description: Some(
+                    "Fuzzy search pattern to match against file and directory paths.".to_string(),
+                ),
+            },
+        ),
+        (
+            "path".to_string(),
+            JsonSchema::String {
+                description: Some(
+                    "Absolute path to the directory to search in. Defaults to the current working directory.".to_string(),
+                ),
+            },
+        ),
+    ]);
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: "find_files".to_string(),
+        description:
+            "Fast fuzzy file search across directory trees. Finds files and directories by name using a fuzzy matching algorithm, respecting .gitignore rules. Useful for quickly locating files in large repositories without needing external tools like fd or find."
+                .to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::Object {
+            properties,
+            required: Some(vec!["pattern".to_string()]),
+            additional_properties: Some(false.into()),
+        },
+        output_schema: None,
+    })
+}
+
 pub fn create_test_sync_tool() -> ToolSpec {
     let barrier_properties = BTreeMap::from([
         (
