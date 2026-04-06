@@ -280,13 +280,19 @@ async fn process_messages_sse(
                                         tracker.blocks.get_mut(&index)
                                     {
                                         acc.push_str(text);
-                                    }
-                                    if tx_event
-                                        .send(Ok(ResponseEvent::OutputTextDelta(text.to_owned())))
-                                        .await
-                                        .is_err()
-                                    {
-                                        return;
+                                        if tx_event
+                                            .send(Ok(ResponseEvent::OutputTextDelta(
+                                                text.to_owned(),
+                                            )))
+                                            .await
+                                            .is_err()
+                                        {
+                                            return;
+                                        }
+                                    } else {
+                                        trace!(
+                                            "text_delta for untracked block index {index}, ignoring"
+                                        );
                                     }
                                 }
                             }
@@ -298,16 +304,20 @@ async fn process_messages_sse(
                                         tracker.blocks.get_mut(&index)
                                     {
                                         acc.push_str(thinking);
-                                    }
-                                    if tx_event
-                                        .send(Ok(ResponseEvent::ReasoningContentDelta {
-                                            delta: thinking.to_owned(),
-                                            content_index: index as i64,
-                                        }))
-                                        .await
-                                        .is_err()
-                                    {
-                                        return;
+                                        if tx_event
+                                            .send(Ok(ResponseEvent::ReasoningContentDelta {
+                                                delta: thinking.to_owned(),
+                                                content_index: index as i64,
+                                            }))
+                                            .await
+                                            .is_err()
+                                        {
+                                            return;
+                                        }
+                                    } else {
+                                        trace!(
+                                            "thinking_delta for untracked block index {index}, ignoring"
+                                        );
                                     }
                                 }
                             }
@@ -1792,5 +1802,151 @@ mod tests {
             }
         }
         assert!(found, "must emit Completed event");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // S-003: text_delta gating tests
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// S-003-T1: text_delta with a valid tracked block → OutputTextDelta emitted.
+    #[tokio::test]
+    async fn test_s003_text_delta_tracked_block_emitted() {
+        let fixture = vec![
+            r#"data: {"type":"message_start","message":{"id":"msg_s003a","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.6","usage":{"input_tokens":5,"output_tokens":0}}}"#,
+            "",
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"tracked text"}}"#,
+            "",
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            "",
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}"#,
+            "",
+            r#"data: {"type":"message_stop"}"#,
+            "",
+        ];
+
+        let stream = fixture_to_byte_stream(&fixture);
+        let response_stream = spawn_messages_stream(stream, Duration::from_secs(10));
+        let mut rx = response_stream.rx_event;
+
+        let mut found_delta = false;
+        while let Some(event) = rx.recv().await {
+            if let Ok(ResponseEvent::OutputTextDelta(t)) = &event {
+                assert_eq!(t, "tracked text");
+                found_delta = true;
+            }
+        }
+        assert!(
+            found_delta,
+            "text_delta for a tracked Text block must emit OutputTextDelta"
+        );
+    }
+
+    /// S-003-T2: text_delta with an untracked block index → NOT emitted.
+    /// A content_block_delta referencing index 99 (never initialized via
+    /// content_block_start) must be silently dropped.
+    #[tokio::test]
+    async fn test_s003_text_delta_untracked_block_ignored() {
+        let fixture = vec![
+            r#"data: {"type":"message_start","message":{"id":"msg_s003b","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.6","usage":{"input_tokens":5,"output_tokens":0}}}"#,
+            "",
+            // No content_block_start for index 99 — it is untracked.
+            r#"data: {"type":"content_block_delta","index":99,"delta":{"type":"text_delta","text":"orphaned text"}}"#,
+            "",
+            // Add a valid text block so the stream completes normally.
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"valid"}}"#,
+            "",
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            "",
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}"#,
+            "",
+            r#"data: {"type":"message_stop"}"#,
+            "",
+        ];
+
+        let stream = fixture_to_byte_stream(&fixture);
+        let response_stream = spawn_messages_stream(stream, Duration::from_secs(10));
+        let mut rx = response_stream.rx_event;
+
+        let mut text_deltas = Vec::new();
+        while let Some(event) = rx.recv().await {
+            if let Ok(ResponseEvent::OutputTextDelta(t)) = event {
+                text_deltas.push(t);
+            }
+        }
+        // Only the tracked block's delta should appear; the orphaned one must be dropped.
+        assert_eq!(
+            text_deltas,
+            vec!["valid".to_string()],
+            "text_delta for untracked block index must NOT emit OutputTextDelta"
+        );
+    }
+
+    /// S-003-T3: thinking_delta and input_json_delta gating regression guard.
+    /// Deltas referencing untracked block indices must not emit events.
+    #[tokio::test]
+    async fn test_s003_thinking_and_input_json_delta_gating() {
+        let fixture = vec![
+            r#"data: {"type":"message_start","message":{"id":"msg_s003c","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.6","usage":{"input_tokens":5,"output_tokens":0}}}"#,
+            "",
+            // thinking_delta for untracked index 50
+            r#"data: {"type":"content_block_delta","index":50,"delta":{"type":"thinking_delta","thinking":"orphaned thinking"}}"#,
+            "",
+            // input_json_delta for untracked index 51
+            r#"data: {"type":"content_block_delta","index":51,"delta":{"type":"input_json_delta","partial_json":"{\"orphan\": true}"}}"#,
+            "",
+            // Tracked thinking block at index 0
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"real thinking"}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig_test"}}"#,
+            "",
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            "",
+            r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"done"}}"#,
+            "",
+            r#"data: {"type":"content_block_stop","index":1}"#,
+            "",
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}"#,
+            "",
+            r#"data: {"type":"message_stop"}"#,
+            "",
+        ];
+
+        let stream = fixture_to_byte_stream(&fixture);
+        let response_stream = spawn_messages_stream(stream, Duration::from_secs(10));
+        let mut rx = response_stream.rx_event;
+
+        let mut thinking_deltas = Vec::new();
+        let mut text_deltas = Vec::new();
+        while let Some(event) = rx.recv().await {
+            match &event {
+                Ok(ResponseEvent::ReasoningContentDelta { delta, .. }) => {
+                    thinking_deltas.push(delta.clone());
+                }
+                Ok(ResponseEvent::OutputTextDelta(t)) => {
+                    text_deltas.push(t.clone());
+                }
+                _ => {}
+            }
+        }
+        // Only the tracked thinking block's delta should appear.
+        assert_eq!(
+            thinking_deltas,
+            vec!["real thinking".to_string()],
+            "thinking_delta for untracked block must NOT emit ReasoningContentDelta"
+        );
+        // Only the tracked text block's delta should appear.
+        assert_eq!(
+            text_deltas,
+            vec!["done".to_string()],
+            "text_delta for tracked block must emit, untracked must not"
+        );
     }
 }
