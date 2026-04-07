@@ -13,6 +13,8 @@ pub(crate) const TURN_ABORTED_OPEN_TAG: &str = "<turn_aborted>";
 pub(crate) const TURN_ABORTED_CLOSE_TAG: &str = "</turn_aborted>";
 pub(crate) const SUBAGENT_NOTIFICATION_OPEN_TAG: &str = "<subagent_notification>";
 pub(crate) const SUBAGENT_NOTIFICATION_CLOSE_TAG: &str = "</subagent_notification>";
+pub(crate) const PLAN_STATE_OPEN_TAG: &str = "<plan_state>";
+pub(crate) const PLAN_STATE_CLOSE_TAG: &str = "</plan_state>";
 
 pub(crate) const ENVIRONMENT_CONTEXT_FRAGMENT: ContextualUserFragmentDefinition =
     ContextualUserFragmentDefinition::new(
@@ -31,10 +33,13 @@ pub(crate) const SUBAGENT_NOTIFICATION_FRAGMENT: ContextualUserFragmentDefinitio
         SUBAGENT_NOTIFICATION_OPEN_TAG,
         SUBAGENT_NOTIFICATION_CLOSE_TAG,
     );
+pub(crate) const PLAN_STATE_FRAGMENT: ContextualUserFragmentDefinition =
+    ContextualUserFragmentDefinition::new(PLAN_STATE_OPEN_TAG, PLAN_STATE_CLOSE_TAG);
 
 const CONTEXTUAL_USER_FRAGMENTS: &[ContextualUserFragmentDefinition] = &[
     AGENTS_MD_FRAGMENT,
     ENVIRONMENT_CONTEXT_FRAGMENT,
+    PLAN_STATE_FRAGMENT,
     SKILL_FRAGMENT,
     USER_SHELL_COMMAND_FRAGMENT,
     TURN_ABORTED_FRAGMENT,
@@ -59,7 +64,9 @@ pub(crate) fn is_memory_excluded_contextual_user_fragment(content_item: &Content
     let ContentItem::InputText { text } = content_item else {
         return false;
     };
-    AGENTS_MD_FRAGMENT.matches_text(text) || SKILL_FRAGMENT.matches_text(text)
+    AGENTS_MD_FRAGMENT.matches_text(text)
+        || SKILL_FRAGMENT.matches_text(text)
+        || PLAN_STATE_FRAGMENT.matches_text(text)
 }
 
 pub(crate) fn is_contextual_user_fragment(content_item: &ContentItem) -> bool {

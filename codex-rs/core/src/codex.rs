@@ -3598,6 +3598,7 @@ impl Session {
             collaboration_mode,
             base_instructions,
             session_source,
+            plan_state,
         ) = {
             let state = self.state.lock().await;
             (
@@ -3606,6 +3607,7 @@ impl Session {
                 state.session_configuration.collaboration_mode.clone(),
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
+                state.plan_state().clone(),
             )
         };
         if let Some(model_switch_message) =
@@ -3735,6 +3737,12 @@ impl Session {
                 .serialize_to_xml(),
         );
 
+        // Inject current plan state so the model always knows where it left off.
+        if !plan_state.is_empty() {
+            use crate::contextual_user_message::PLAN_STATE_FRAGMENT;
+            contextual_user_sections.push(PLAN_STATE_FRAGMENT.wrap(plan_state.to_context_string()));
+        }
+
         let mut items = Vec::with_capacity(3);
         if let Some(developer_message) =
             crate::context_manager::updates::build_developer_update_item(developer_sections)
@@ -3782,6 +3790,11 @@ impl Session {
         state.reference_context_item()
     }
 
+    pub(crate) async fn set_plan_state(&self, plan_state: codex_protocol::plan_tool::PlanState) {
+        let mut state = self.state.lock().await;
+        state.set_plan_state(plan_state);
+    }
+
     /// Persist the latest turn context snapshot for the first real user turn and for
     /// steady-state turns that emit model-visible context updates.
     ///
@@ -3799,18 +3812,44 @@ impl Session {
         &self,
         turn_context: &TurnContext,
     ) {
-        let reference_context_item = {
+        let (reference_context_item, plan_state) = {
             let state = self.state.lock().await;
-            state.reference_context_item()
+            (state.reference_context_item(), state.plan_state().clone())
         };
         let should_inject_full_context = reference_context_item.is_none();
-        let context_items = if should_inject_full_context {
+        let mut context_items = if should_inject_full_context {
+            // Full injection — plan state is already included via build_initial_context.
             self.build_initial_context(turn_context).await
         } else {
             // Steady-state path: append only context diffs to minimize token overhead.
             self.build_settings_update_items(reference_context_item.as_ref(), turn_context)
                 .await
         };
+
+        // On steady-state turns, inject plan state as a separate contextual user
+        // message so the model always sees its current task list. On full-context
+        // turns this is already included in build_initial_context.
+        if !should_inject_full_context && !plan_state.is_empty() {
+            use crate::contextual_user_message::PLAN_STATE_FRAGMENT;
+            let plan_text = PLAN_STATE_FRAGMENT.wrap(plan_state.to_context_string());
+
+            // If there's an in-progress task, append a resumption hint so the model
+            // returns to it after addressing any interruption in the user's message.
+            let plan_text = if let Some(task) = plan_state.in_progress_task() {
+                format!(
+                    "{plan_text}\n[After addressing the above, resume your in-progress task: \"{task}\"]"
+                )
+            } else {
+                plan_text
+            };
+
+            if let Some(plan_item) =
+                crate::context_manager::updates::build_contextual_user_message(vec![plan_text])
+            {
+                context_items.push(plan_item);
+            }
+        }
+
         let turn_context_item = turn_context.to_turn_context_item();
         if !context_items.is_empty() {
             self.record_conversation_items(turn_context, &context_items)

@@ -11,6 +11,7 @@ use crate::codex::SessionConfiguration;
 use crate::context_manager::ContextManager;
 use crate::loop_detection::LoopDetector;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
+use codex_protocol::plan_tool::PlanState;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
@@ -40,6 +41,8 @@ pub(crate) struct SessionState {
     pub(crate) consecutive_null_completions: u32,
     /// Detects infinite tool-call and content-repetition loops.
     pub(crate) loop_detector: LoopDetector,
+    /// Latest plan state from `update_plan` calls, re-injected each turn.
+    plan_state: PlanState,
 }
 
 impl SessionState {
@@ -60,6 +63,7 @@ impl SessionState {
             granted_permissions: None,
             consecutive_null_completions: 0,
             loop_detector: LoopDetector::new(),
+            plan_state: PlanState::default(),
         }
     }
 
@@ -222,6 +226,14 @@ impl SessionState {
 
     pub(crate) fn granted_permissions(&self) -> Option<PermissionProfile> {
         self.granted_permissions.clone()
+    }
+
+    pub(crate) fn plan_state(&self) -> &PlanState {
+        &self.plan_state
+    }
+
+    pub(crate) fn set_plan_state(&mut self, state: PlanState) {
+        self.plan_state = state;
     }
 }
 

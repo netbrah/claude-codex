@@ -9,6 +9,7 @@ use crate::tools::registry::ToolKind;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
+use codex_protocol::plan_tool::PlanState;
 use codex_protocol::plan_tool::UpdatePlanArgs;
 use codex_protocol::protocol::EventMsg;
 use serde_json::Value as JsonValue;
@@ -89,6 +90,12 @@ pub(crate) async fn handle_update_plan(
         ));
     }
     let args = parse_update_plan_arguments(&arguments)?;
+
+    // Persist plan state in session for context re-injection on subsequent turns.
+    session
+        .set_plan_state(PlanState::from_update(&args))
+        .await;
+
     session
         .send_event(turn_context, EventMsg::PlanUpdate(args))
         .await;
