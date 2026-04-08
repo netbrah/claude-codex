@@ -64,15 +64,15 @@ jobs:
 
           git checkout -b "$BRANCH"
 
-          if git merge upstream/main --no-edit; then
+          MERGE_OUTPUT=$(git merge upstream/main --no-edit 2>&1) && MERGE_RC=0 || MERGE_RC=$?
+
+          if [ "$MERGE_RC" -eq 0 ]; then
             echo "conflict=false" >> "$GITHUB_OUTPUT"
             git push origin "$BRANCH"
           else
             echo "conflict=true" >> "$GITHUB_OUTPUT"
-            # Abort the failed merge so we can still push the branch
-            # with a marker commit explaining the conflict
-            git merge --abort
-            CONFLICTING_FILES=$(git merge upstream/main 2>&1 | grep "CONFLICT" || true)
+            # Extract conflict details from the failed merge output
+            CONFLICTING_FILES=$(echo "$MERGE_OUTPUT" | grep "CONFLICT" || true)
             git merge --abort
             echo "conflicting_files<<EOF" >> "$GITHUB_OUTPUT"
             echo "$CONFLICTING_FILES" >> "$GITHUB_OUTPUT"
@@ -112,7 +112,7 @@ jobs:
               body: [
                 '## Upstream Sync',
                 '',
-                `Pulls **${commitCount}** new commit(s) from [\`openai/codex@main\`](https://github.com/openai/codex/compare/${upstreamSha.slice(0, 12)}).`,
+                `Pulls **${commitCount}** new commit(s) from [\`openai/codex@main\`](https://github.com/openai/codex/tree/main) up to \`${upstreamSha.slice(0, 12)}\`.`,
                 '',
                 'This PR was created automatically by the [upstream-sync workflow](../actions/workflows/upstream-sync.yml).',
                 '',
