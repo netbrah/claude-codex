@@ -1,0 +1,185 @@
+name: Sync upstream (openai/codex)
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-upstream:
+    # Only run on the canonical repo, not on forks-of-forks
+    if: github.repository == 'netbrah/xli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch upstream main
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          UPSTREAM_SHA=$(git rev-parse upstream/main)
+          echo "upstream_sha=${UPSTREAM_SHA}" >> "$GITHUB_OUTPUT"
+
+          if git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Already up to date with upstream."
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+            COMMIT_COUNT=$(git rev-list HEAD..upstream/main --count)
+            echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+            echo "🔄 Found ${COMMIT_COUNT} new upstream commit(s)."
+          fi
+
+      - name: Create sync branch and attempt merge
+        if: steps.check.outputs.up_to_date == 'false'
+        id: merge
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          BRANCH="chore/upstream-sync-${DATE}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+
+          # Delete remote branch if it already exists (re-run on same day)
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+
+          git checkout -b "$BRANCH"
+
+          if git merge upstream/main --no-edit; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+            git push origin "$BRANCH"
+          else
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            # Abort the failed merge so we can still push the branch
+            # with a marker commit explaining the conflict
+            git merge --abort
+            CONFLICTING_FILES=$(git merge upstream/main 2>&1 | grep "CONFLICT" || true)
+            git merge --abort
+            echo "conflicting_files<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$CONFLICTING_FILES" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open pull request (clean merge)
+        if: steps.check.outputs.up_to_date == 'false' && steps.merge.outputs.conflict == 'false'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const branch = '${{ steps.merge.outputs.branch }}';
+            const date = '${{ steps.merge.outputs.date }}';
+            const commitCount = '${{ steps.check.outputs.commit_count }}';
+            const upstreamSha = '${{ steps.check.outputs.upstream_sha }}';
+
+            // Check if PR already exists for this branch
+            const { data: existing } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branch}`,
+              base: 'dev',
+              state: 'open',
+            });
+
+            if (existing.length > 0) {
+              core.info(`PR already exists: ${existing[0].html_url}`);
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `chore: sync upstream openai/codex (${date})`,
+              head: branch,
+              base: 'dev',
+              body: [
+                '## Upstream Sync',
+                '',
+                `Pulls **${commitCount}** new commit(s) from [\`openai/codex@main\`](https://github.com/openai/codex/compare/${upstreamSha.slice(0, 12)}).`,
+                '',
+                'This PR was created automatically by the [upstream-sync workflow](../actions/workflows/upstream-sync.yml).',
+                '',
+                '### After merging',
+                '```bash',
+                'git checkout feat/xli-embed-assets',
+                'git fetch origin',
+                'git rebase dev',
+                'git push origin feat/xli-embed-assets --force-with-lease',
+                '```',
+              ].join('\n'),
+            });
+
+            core.info(`Created PR #${pr.number}: ${pr.html_url}`);
+
+      - name: Open issue (merge conflict)
+        if: steps.check.outputs.up_to_date == 'false' && steps.merge.outputs.conflict == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const date = '${{ steps.merge.outputs.date }}';
+            const commitCount = '${{ steps.check.outputs.commit_count }}';
+            const upstreamSha = '${{ steps.check.outputs.upstream_sha }}';
+            const conflicts = `${{ steps.merge.outputs.conflicting_files }}`;
+
+            // Check for an existing open issue to avoid duplicates
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-sync',
+              per_page: 5,
+            });
+
+            if (issues.length > 0) {
+              core.info(`Upstream-sync issue already open: ${issues[0].html_url}`);
+              return;
+            }
+
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `chore: upstream sync conflict (${date})`,
+              body: [
+                '## ⚠️ Upstream Sync — Manual Merge Required',
+                '',
+                `**${commitCount}** new commit(s) from [\`openai/codex@main\`](https://github.com/openai/codex) could not be merged automatically into \`dev\`.`,
+                '',
+                `Upstream HEAD: \`${upstreamSha.slice(0, 12)}\``,
+                '',
+                '### Conflicts',
+                '```',
+                conflicts || '(unable to capture conflict details)',
+                '```',
+                '',
+                '### Manual resolution',
+                '```bash',
+                'git checkout dev',
+                'git remote add upstream https://github.com/openai/codex.git 2>/dev/null || true',
+                'git fetch upstream main',
+                'git merge upstream/main',
+                '# resolve conflicts …',
+                'git commit',
+                'git push origin dev',
+                '```',
+              ].join('\n'),
+              labels: ['upstream-sync'],
+            });
+
+            core.info(`Created issue #${issue.number}: ${issue.html_url}`);
