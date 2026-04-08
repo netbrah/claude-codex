@@ -23,6 +23,8 @@ use crate::create_close_agent_tool_v2;
 use crate::create_code_mode_tool;
 use crate::create_exec_command_tool;
 use crate::create_find_files_tool;
+use crate::create_grep_files_tool;
+use crate::create_read_file_tool;
 use crate::create_followup_task_tool;
 use crate::create_image_generation_tool;
 use crate::create_js_repl_reset_tool;
@@ -324,6 +326,32 @@ pub fn build_tool_registry_plan(
             config.code_mode_enabled,
         );
         plan.register_handler("find_files", ToolHandlerKind::FindFiles);
+    }
+
+    if config
+        .experimental_supported_tools
+        .iter()
+        .any(|tool| tool == "read_file")
+    {
+        plan.push_spec(
+            create_read_file_tool(),
+            /*supports_parallel_tool_calls*/ true,
+            config.code_mode_enabled,
+        );
+        plan.register_handler("read_file", ToolHandlerKind::ReadFile);
+    }
+
+    if config
+        .experimental_supported_tools
+        .iter()
+        .any(|tool| tool == "grep_files")
+    {
+        plan.push_spec(
+            create_grep_files_tool(),
+            /*supports_parallel_tool_calls*/ true,
+            config.code_mode_enabled,
+        );
+        plan.register_handler("grep_files", ToolHandlerKind::GrepFiles);
     }
 
     if config

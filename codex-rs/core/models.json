@@ -60,7 +60,8 @@
       },
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -133,7 +134,8 @@
       },
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -209,7 +211,8 @@
       },
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -279,7 +282,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -345,7 +349,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -415,7 +420,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -481,7 +487,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -547,7 +554,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -617,7 +625,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -679,7 +688,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -741,7 +751,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -803,7 +814,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -865,7 +877,8 @@
       "model_messages": null,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "available_in_plans": [
         "business",
@@ -933,7 +946,8 @@
       "priority": 50,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "supports_search_tool": false
     },
@@ -992,7 +1006,8 @@
       "priority": 45,
       "experimental_supported_tools": [
         "list_dir",
-        "find_files"
+        "find_files",
+        "read_file"
       ],
       "supports_search_tool": false
     }

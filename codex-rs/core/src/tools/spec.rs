@@ -41,6 +41,8 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::CodeModeWaitHandler;
     use crate::tools::handlers::DynamicToolHandler;
     use crate::tools::handlers::FindFilesHandler;
+    use crate::tools::handlers::GrepFilesHandler;
+    use crate::tools::handlers::ReadFileHandler;
     use crate::tools::handlers::JsReplHandler;
     use crate::tools::handlers::JsReplResetHandler;
     use crate::tools::handlers::ListDirHandler;
@@ -156,6 +158,9 @@ pub use crate::tools::handlers::AnalyzeSymbolSourceHandler;
             ToolHandlerKind::FindFiles => {
                 builder.register_handler(handler.name, Arc::new(FindFilesHandler));
             }
+            ToolHandlerKind::GrepFiles => {
+                builder.register_handler(handler.name, Arc::new(GrepFilesHandler));
+            }
             ToolHandlerKind::FollowupTaskV2 => {
                 builder.register_handler(handler.name, Arc::new(FollowupTaskHandlerV2));
             }
@@ -179,6 +184,9 @@ pub use crate::tools::handlers::AnalyzeSymbolSourceHandler;
             }
             ToolHandlerKind::Plan => {
                 builder.register_handler(handler.name, plan_handler.clone());
+            }
+            ToolHandlerKind::ReadFile => {
+                builder.register_handler(handler.name, Arc::new(ReadFileHandler));
             }
             ToolHandlerKind::RequestPermissions => {
                 builder.register_handler(handler.name, request_permissions_handler.clone());
