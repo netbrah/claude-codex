@@ -37,11 +37,21 @@ fn clean_orphaned_tool_calls(input: &[ResponseItem]) -> Vec<ResponseItem> {
             ResponseItem::CustomToolCall { call_id, .. } => {
                 call_ids.insert(call_id.clone());
             }
+            ResponseItem::ToolSearchCall { call_id, .. } => {
+                if let Some(id) = call_id {
+                    call_ids.insert(id.clone());
+                }
+            }
             ResponseItem::FunctionCallOutput { call_id, .. } => {
                 output_ids.insert(call_id.clone());
             }
             ResponseItem::CustomToolCallOutput { call_id, .. } => {
                 output_ids.insert(call_id.clone());
+            }
+            ResponseItem::ToolSearchOutput { call_id, .. } => {
+                if let Some(id) = call_id {
+                    output_ids.insert(id.clone());
+                }
             }
             _ => {}
         }
@@ -59,8 +69,14 @@ fn clean_orphaned_tool_calls(input: &[ResponseItem]) -> Vec<ResponseItem> {
                 call_id.as_ref().map_or(false, |id| paired.contains(id))
             }
             ResponseItem::CustomToolCall { call_id, .. } => paired.contains(call_id),
+            ResponseItem::ToolSearchCall { call_id, .. } => {
+                call_id.as_ref().map_or(false, |id| paired.contains(id))
+            }
             ResponseItem::FunctionCallOutput { call_id, .. } => paired.contains(call_id),
             ResponseItem::CustomToolCallOutput { call_id, .. } => paired.contains(call_id),
+            ResponseItem::ToolSearchOutput { call_id, .. } => {
+                call_id.as_ref().map_or(false, |id| paired.contains(id))
+            }
             _ => true,
         })
         .cloned()
@@ -287,6 +303,51 @@ pub(crate) fn conversation_to_anthropic_messages(input: &[ResponseItem], support
                 }
             }
 
+            ResponseItem::ToolSearchCall {
+                call_id,
+                arguments,
+                ..
+            } => {
+                // Translate tool_search calls into regular tool_use blocks so
+                // the model retains memory of tool discovery across turns.
+                let id = call_id.clone().unwrap_or_else(|| {
+                    format!("toolu_search_{:016x}", {
+                        use std::hash::{Hash, Hasher};
+                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                        arguments.to_string().hash(&mut h);
+                        messages.len().hash(&mut h);
+                        h.finish()
+                    })
+                });
+                let block = json!({
+                    "type": "tool_use",
+                    "id": id,
+                    "name": "tool_search",
+                    "input": arguments,
+                });
+                append_to_role(&mut messages, "assistant", vec![block]);
+            }
+
+            ResponseItem::ToolSearchOutput {
+                call_id,
+                tools,
+                ..
+            } => {
+                // Translate tool_search results into tool_result blocks.
+                let id = call_id.clone().unwrap_or_default();
+                let content = if tools.is_empty() {
+                    json!("No tools found.")
+                } else {
+                    json!(tools)
+                };
+                let block = json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": content,
+                });
+                append_to_role(&mut messages, "user", vec![block]);
+            }
+
             _ => {
                 tracing::trace!("messages_wire: skipping unhandled ResponseItem variant");
             }
@@ -406,8 +467,14 @@ fn strip_thinking_from_non_latest_assistant_messages(messages: &mut Vec<Value>) 
 
 /// Translates OpenAI Responses API tool specs to Anthropic `/messages` format.
 ///
-/// Only `Function` tools are translated; server-side tool types (local_shell,
-/// web_search, etc.) are skipped since Anthropic doesn't have equivalents.
+/// `Function` tools map 1:1. `Freeform` (custom) tools are translated into a
+/// single-string-parameter tool with the grammar/format definition embedded in
+/// the description so Claude can produce the expected freeform output.
+/// `ToolSearch` tools are translated as function tools with the same parameter
+/// schema.
+///
+/// Server-side tool types (`local_shell`, `web_search`, `image_generation`)
+/// are skipped since Anthropic doesn't have equivalents.
 pub(crate) fn tools_to_anthropic_format(tools: &[ToolSpec]) -> Vec<Value> {
     let mut result: Vec<Value> = tools
         .iter()
@@ -417,6 +484,45 @@ pub(crate) fn tools_to_anthropic_format(tools: &[ToolSpec]) -> Vec<Value> {
                 "description": f.description,
                 "input_schema": f.parameters,
             })),
+            ToolSpec::Freeform(f) => {
+                // Anthropic has no native freeform/custom tool type. Translate
+                // into a regular tool with a single `input` string parameter.
+                // Embed the grammar definition into the description so the
+                // model knows the expected output format.
+                let description = format!(
+                    "{}\n\nThis is a FREEFORM tool. Put your raw freeform content \
+                     into the \"input\" parameter as a single string — do NOT \
+                     wrap it in any other structure.\n\n\
+                     Format ({} / {}): {}", // type / syntax: definition
+                    f.description,
+                    f.format.r#type,
+                    f.format.syntax,
+                    f.format.definition,
+                );
+                Some(json!({
+                    "name": f.name,
+                    "description": description,
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "input": {
+                                "type": "string",
+                                "description": "The freeform tool content."
+                            }
+                        },
+                        "required": ["input"],
+                        "additionalProperties": false
+                    },
+                }))
+            }
+            ToolSpec::ToolSearch { description, parameters, .. } => {
+                // Expose tool_search to the model so it can discover skills.
+                Some(json!({
+                    "name": "tool_search",
+                    "description": description,
+                    "input_schema": parameters,
+                }))
+            }
             _ => None,
         })
         .collect();
@@ -1996,6 +2102,157 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0]["role"], "user");
     }
+
+    #[test]
+    fn test_tool_search_call_translated() {
+        let input = vec![
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "Find calendar tools".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            ResponseItem::ToolSearchCall {
+                id: None,
+                call_id: Some("search_01".to_string()),
+                status: None,
+                execution: "client".to_string(),
+                arguments: serde_json::json!({"query": "calendar"}),
+            },
+            ResponseItem::ToolSearchOutput {
+                call_id: Some("search_01".to_string()),
+                status: "completed".to_string(),
+                execution: "client".to_string(),
+                tools: vec![serde_json::json!({
+                    "name": "create_event",
+                    "description": "Create a calendar event",
+                })],
+            },
+        ];
+
+        let messages = conversation_to_anthropic_messages(&input, true);
+        assert_eq!(messages.len(), 3);
+
+        // User message
+        assert_eq!(messages[0]["role"], "user");
+
+        // ToolSearchCall → assistant tool_use
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"][0]["type"], "tool_use");
+        assert_eq!(messages[1]["content"][0]["id"], "search_01");
+        assert_eq!(messages[1]["content"][0]["name"], "tool_search");
+        assert_eq!(messages[1]["content"][0]["input"]["query"], "calendar");
+
+        // ToolSearchOutput → user tool_result
+        assert_eq!(messages[2]["role"], "user");
+        assert_eq!(messages[2]["content"][0]["type"], "tool_result");
+        assert_eq!(messages[2]["content"][0]["tool_use_id"], "search_01");
+    }
+
+    #[test]
+    fn test_tool_search_empty_result() {
+        let input = vec![
+            ResponseItem::ToolSearchCall {
+                id: None,
+                call_id: Some("search_02".to_string()),
+                status: None,
+                execution: "client".to_string(),
+                arguments: serde_json::json!({"query": "nonexistent"}),
+            },
+            ResponseItem::ToolSearchOutput {
+                call_id: Some("search_02".to_string()),
+                status: "completed".to_string(),
+                execution: "client".to_string(),
+                tools: vec![],
+            },
+        ];
+
+        let messages = conversation_to_anthropic_messages(&input, true);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "assistant");
+        assert_eq!(messages[1]["role"], "user");
+        assert_eq!(messages[1]["content"][0]["content"], "No tools found.");
+    }
+
+    #[test]
+    fn test_orphaned_tool_search_call_stripped() {
+        let input = vec![
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "hello".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            // Orphaned: call with no matching output
+            ResponseItem::ToolSearchCall {
+                id: None,
+                call_id: Some("search_orphan".to_string()),
+                status: None,
+                execution: "client".to_string(),
+                arguments: serde_json::json!({"query": "test"}),
+            },
+        ];
+        let messages = conversation_to_anthropic_messages(&input, true);
+        assert_eq!(messages.len(), 1, "orphaned tool_search_call should be stripped");
+        assert_eq!(messages[0]["role"], "user");
+    }
+
+    #[test]
+    fn test_freeform_tool_translated() {
+        use codex_tools::FreeformTool;
+        use codex_tools::FreeformToolFormat;
+
+        let tools = vec![ToolSpec::Freeform(FreeformTool {
+            name: "apply_patch".to_string(),
+            description: "Apply a patch".to_string(),
+            format: FreeformToolFormat {
+                r#type: "grammar".to_string(),
+                syntax: "diff".to_string(),
+                definition: "unified diff format".to_string(),
+            },
+        })];
+
+        let anthropic_tools = tools_to_anthropic_format(&tools);
+        assert_eq!(anthropic_tools.len(), 1);
+        assert_eq!(anthropic_tools[0]["name"], "apply_patch");
+        // Should have a single "input" string parameter
+        let props = &anthropic_tools[0]["input_schema"]["properties"];
+        assert!(props.get("input").is_some(), "freeform tool should have 'input' param");
+        assert_eq!(
+            anthropic_tools[0]["input_schema"]["required"][0], "input",
+            "input should be required"
+        );
+        // Description should embed the freeform format info
+        let desc = anthropic_tools[0]["description"].as_str().unwrap();
+        assert!(desc.contains("FREEFORM"), "description should mention FREEFORM");
+        assert!(desc.contains("diff"), "description should include syntax");
+    }
+
+    #[test]
+    fn test_tool_search_spec_translated() {
+        use codex_tools::JsonSchema;
+
+        let tools = vec![ToolSpec::ToolSearch {
+            execution: "client".to_string(),
+            description: "Search available tools".to_string(),
+            parameters: JsonSchema::Object {
+                properties: Default::default(),
+                required: None,
+                additional_properties: None,
+            },
+        }];
+
+        let anthropic_tools = tools_to_anthropic_format(&tools);
+        assert_eq!(anthropic_tools.len(), 1);
+        assert_eq!(anthropic_tools[0]["name"], "tool_search");
+        assert_eq!(anthropic_tools[0]["description"], "Search available tools");
+    }
 }
 
 // ── S-008: Modality gating tests ────────────────────────────────────
@@ -2927,5 +3184,365 @@ mod translator_tests {
         assert_eq!(messages.len(), 3, "forked assistant-ending conv needs sentinel");
         assert_eq!(messages[2]["role"], "user");
         assert_eq!(messages[2]["content"][0]["text"], "[Continue]");
+    }
+}
+
+// ── ResponseItem / ToolSpec variant exhaustiveness tests ─────────────
+//
+// These tests ensure that every ResponseItem variant is accounted for in
+// the /messages wire translator. When a new variant is added to the enum,
+// the match arm below will fail to compile, forcing the developer to
+// decide whether it needs Anthropic translation.
+
+#[cfg(test)]
+mod variant_exhaustiveness_tests {
+    use super::*;
+    use codex_protocol::models::*;
+
+    /// Classifies a ResponseItem variant for the /messages wire.
+    ///
+    /// **This function exists solely to produce a compile error when a new
+    /// ResponseItem variant is added.** Update the match, add the variant
+    /// to the appropriate category, and (if "translated") add handling in
+    /// `conversation_to_anthropic_messages` + `clean_orphaned_tool_calls`.
+    fn variant_category(item: &ResponseItem) -> &'static str {
+        match item {
+            // ── Translated to Anthropic messages ──
+            ResponseItem::Message { .. } => "translated",
+            ResponseItem::Reasoning { .. } => "translated",
+            ResponseItem::FunctionCall { .. } => "translated",
+            ResponseItem::FunctionCallOutput { .. } => "translated",
+            ResponseItem::CustomToolCall { .. } => "translated",
+            ResponseItem::CustomToolCallOutput { .. } => "translated",
+            ResponseItem::LocalShellCall { .. } => "translated",
+            ResponseItem::ToolSearchCall { .. } => "translated",
+            ResponseItem::ToolSearchOutput { .. } => "translated",
+
+            // ── Intentionally skipped (no Anthropic equivalent / internal-only) ──
+            ResponseItem::WebSearchCall { .. } => "skipped_intentional",
+            ResponseItem::ImageGenerationCall { .. } => "skipped_intentional",
+            ResponseItem::GhostSnapshot { .. } => "skipped_internal",
+            ResponseItem::Compaction { .. } => "skipped_internal",
+            ResponseItem::Other => "skipped_unknown",
+
+            // ── If you get a compile error here, a new variant was added. ──
+            // Decide: does it need Anthropic translation?
+            //   YES → add to "translated" above, add match arm in
+            //          conversation_to_anthropic_messages(), and if it's a
+            //          tool call/output, add to clean_orphaned_tool_calls().
+            //   NO  → add to "skipped_*" above with a comment explaining why.
+        }
+    }
+
+    #[test]
+    fn all_response_item_variants_classified() {
+        // Build one instance of each variant and verify it classifies.
+        // The real value is the compile-time exhaustiveness check above.
+        let items: Vec<ResponseItem> = vec![
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText { text: "hi".to_string() }],
+                end_turn: None,
+                phase: None,
+            },
+            ResponseItem::Reasoning {
+                id: String::new(),
+                summary: vec![],
+                content: None,
+                encrypted_content: None,
+                raw_wire_block: None,
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "shell".to_string(),
+                namespace: None,
+                arguments: "{}".to_string(),
+                call_id: "c1".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "c1".to_string(),
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            },
+            ResponseItem::CustomToolCall {
+                id: None,
+                status: None,
+                call_id: "c2".to_string(),
+                name: "patch".to_string(),
+                input: "{}".to_string(),
+            },
+            ResponseItem::CustomToolCallOutput {
+                call_id: "c2".to_string(),
+                name: None,
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            },
+            ResponseItem::LocalShellCall {
+                id: None,
+                call_id: Some("c3".to_string()),
+                status: LocalShellStatus::Completed,
+                action: LocalShellAction::Exec(LocalShellExecAction {
+                    command: vec!["ls".to_string()],
+                    timeout_ms: None,
+                    working_directory: None,
+                    env: None,
+                    user: None,
+                }),
+            },
+            ResponseItem::ToolSearchCall {
+                id: None,
+                call_id: Some("c4".to_string()),
+                status: None,
+                execution: "client".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ResponseItem::ToolSearchOutput {
+                call_id: Some("c4".to_string()),
+                status: "completed".to_string(),
+                execution: "client".to_string(),
+                tools: vec![],
+            },
+            ResponseItem::WebSearchCall {
+                id: None,
+                status: None,
+                action: None,
+            },
+            ResponseItem::ImageGenerationCall {
+                id: "ig1".to_string(),
+                status: "completed".to_string(),
+                revised_prompt: None,
+                result: String::new(),
+            },
+            ResponseItem::Compaction {
+                encrypted_content: String::new(),
+            },
+            ResponseItem::Other,
+        ];
+
+        // Every variant must have a classification.
+        for item in &items {
+            let cat = variant_category(item);
+            assert!(
+                ["translated", "skipped_intentional", "skipped_internal", "skipped_unknown"]
+                    .contains(&cat),
+                "unexpected category: {cat}"
+            );
+        }
+
+        // Count: ensure we covered all expected variants.
+        // GhostSnapshot is excluded from the runtime check because constructing
+        // one requires a GhostCommit which is non-trivial — but the
+        // compile-time exhaustiveness match above covers it.
+        let translated_count = items.iter().filter(|i| variant_category(i) == "translated").count();
+        assert!(
+            translated_count >= 9,
+            "expected at least 9 translated variants, got {translated_count}"
+        );
+    }
+
+    #[test]
+    fn translated_variants_produce_anthropic_messages() {
+        // Verify that every "translated" variant actually produces output
+        // in conversation_to_anthropic_messages (not silently dropped).
+        // We test each in isolation with proper pairing.
+
+        // 1. Message → user or assistant message
+        let input = vec![ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText { text: "hi".to_string() }],
+            end_turn: None,
+            phase: None,
+        }];
+        let msgs = conversation_to_anthropic_messages(&input, true);
+        assert!(!msgs.is_empty(), "Message variant must produce output");
+
+        // 2. FunctionCall + FunctionCallOutput pair
+        let input = vec![
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "test".to_string(),
+                namespace: None,
+                arguments: "{}".to_string(),
+                call_id: "fc1".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "fc1".to_string(),
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            },
+        ];
+        let msgs = conversation_to_anthropic_messages(&input, true);
+        assert_eq!(msgs.len(), 2, "FunctionCall+Output must produce 2 messages");
+
+        // 3. CustomToolCall + CustomToolCallOutput pair
+        let input = vec![
+            ResponseItem::CustomToolCall {
+                id: None,
+                status: None,
+                call_id: "ct1".to_string(),
+                name: "patch".to_string(),
+                input: "{}".to_string(),
+            },
+            ResponseItem::CustomToolCallOutput {
+                call_id: "ct1".to_string(),
+                name: None,
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            },
+        ];
+        let msgs = conversation_to_anthropic_messages(&input, true);
+        assert_eq!(msgs.len(), 2, "CustomToolCall+Output must produce 2 messages");
+
+        // 4. LocalShellCall + FunctionCallOutput pair
+        let input = vec![
+            ResponseItem::LocalShellCall {
+                id: None,
+                call_id: Some("ls1".to_string()),
+                status: LocalShellStatus::Completed,
+                action: LocalShellAction::Exec(LocalShellExecAction {
+                    command: vec!["ls".to_string()],
+                    timeout_ms: None,
+                    working_directory: None,
+                    env: None,
+                    user: None,
+                }),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "ls1".to_string(),
+                output: FunctionCallOutputPayload::from_text("files".to_string()),
+            },
+        ];
+        let msgs = conversation_to_anthropic_messages(&input, true);
+        assert_eq!(msgs.len(), 2, "LocalShellCall+Output must produce 2 messages");
+
+        // 5. ToolSearchCall + ToolSearchOutput pair
+        let input = vec![
+            ResponseItem::ToolSearchCall {
+                id: None,
+                call_id: Some("ts1".to_string()),
+                status: None,
+                execution: "client".to_string(),
+                arguments: serde_json::json!({"query": "test"}),
+            },
+            ResponseItem::ToolSearchOutput {
+                call_id: Some("ts1".to_string()),
+                status: "completed".to_string(),
+                execution: "client".to_string(),
+                tools: vec![serde_json::json!({"name": "found_tool"})],
+            },
+        ];
+        let msgs = conversation_to_anthropic_messages(&input, true);
+        assert_eq!(msgs.len(), 2, "ToolSearchCall+Output must produce 2 messages");
+
+        // 6. Reasoning
+        let input = vec![
+            // Need a user message first so reasoning isn't orphaned
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText { text: "think".to_string() }],
+                end_turn: None,
+                phase: None,
+            },
+            ResponseItem::Reasoning {
+                id: "r1".to_string(),
+                summary: vec![ReasoningItemReasoningSummary::SummaryText {
+                    text: "I thought about it".to_string(),
+                }],
+                content: None,
+                encrypted_content: Some("sig123".to_string()),
+                raw_wire_block: None,
+            },
+        ];
+        let msgs = conversation_to_anthropic_messages(&input, true);
+        assert!(msgs.len() >= 2, "Reasoning variant must produce output");
+    }
+
+    /// Compile-time exhaustiveness check for ToolSpec variants in
+    /// tools_to_anthropic_format. Mirrors the ResponseItem check above.
+    fn tool_spec_category(spec: &ToolSpec) -> &'static str {
+        match spec {
+            // ── Translated to Anthropic tool definitions ──
+            ToolSpec::Function(_) => "translated",
+            ToolSpec::Freeform(_) => "translated",
+            ToolSpec::ToolSearch { .. } => "translated",
+
+            // ── Intentionally skipped (server-side / no Anthropic equivalent) ──
+            ToolSpec::LocalShell {} => "skipped",
+            ToolSpec::WebSearch { .. } => "skipped",
+            ToolSpec::ImageGeneration { .. } => "skipped",
+
+            // ── If you get a compile error here, a new ToolSpec variant was added. ──
+            // Decide: should Claude see this tool?
+            //   YES → add to "translated" above and add a match arm in
+            //          tools_to_anthropic_format().
+            //   NO  → add to "skipped" above with a comment.
+        }
+    }
+
+    #[test]
+    fn all_tool_spec_variants_classified() {
+        use codex_tools::FreeformTool;
+        use codex_tools::FreeformToolFormat;
+        use codex_tools::JsonSchema;
+        use codex_tools::ResponsesApiTool;
+
+        let specs: Vec<ToolSpec> = vec![
+            ToolSpec::Function(ResponsesApiTool {
+                name: "test".to_string(),
+                description: "test".to_string(),
+                strict: false,
+                defer_loading: None,
+                parameters: JsonSchema::Object {
+                    properties: Default::default(),
+                    required: None,
+                    additional_properties: None,
+                },
+                output_schema: None,
+            }),
+            ToolSpec::Freeform(FreeformTool {
+                name: "patch".to_string(),
+                description: "patch".to_string(),
+                format: FreeformToolFormat {
+                    r#type: "grammar".to_string(),
+                    syntax: "diff".to_string(),
+                    definition: "".to_string(),
+                },
+            }),
+            ToolSpec::ToolSearch {
+                execution: "client".to_string(),
+                description: "search".to_string(),
+                parameters: JsonSchema::Object {
+                    properties: Default::default(),
+                    required: None,
+                    additional_properties: None,
+                },
+            },
+            ToolSpec::LocalShell {},
+            ToolSpec::WebSearch {
+                external_web_access: None,
+                filters: None,
+                user_location: None,
+                search_context_size: None,
+                search_content_types: None,
+            },
+            ToolSpec::ImageGeneration {
+                output_format: "png".to_string(),
+            },
+        ];
+
+        let translated = specs.iter().filter(|s| tool_spec_category(s) == "translated").count();
+        let skipped = specs.iter().filter(|s| tool_spec_category(s) == "skipped").count();
+        assert_eq!(translated, 3, "expected 3 translated ToolSpec variants");
+        assert_eq!(skipped, 3, "expected 3 skipped ToolSpec variants");
+
+        // Verify translated specs actually produce Anthropic tool JSON.
+        let translated_specs: Vec<ToolSpec> = specs
+            .into_iter()
+            .filter(|s| tool_spec_category(s) == "translated")
+            .collect();
+        let anthropic = tools_to_anthropic_format(&translated_specs);
+        assert_eq!(
+            anthropic.len(), 3,
+            "all translated ToolSpec variants must produce Anthropic JSON"
+        );
     }
 }
