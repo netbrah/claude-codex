@@ -31,26 +31,6 @@ pub fn forced_background() -> Option<(u8, u8, u8)> {
     forced_bg_cell().lock().ok().and_then(|g| *g)
 }
 
-/// Config-forced foreground color override. Mirrors `FORCED_BG` for text.
-static FORCED_FG: OnceLock<Mutex<Option<(u8, u8, u8)>>> = OnceLock::new();
-
-fn forced_fg_cell() -> &'static Mutex<Option<(u8, u8, u8)>> {
-    FORCED_FG.get_or_init(|| Mutex::new(None))
-}
-
-/// Set a forced foreground color from config. Call once at startup.
-pub fn set_forced_foreground(rgb: Option<(u8, u8, u8)>) {
-    if let Ok(mut guard) = forced_fg_cell().lock() {
-        *guard = rgb;
-    }
-    bump_palette_version();
-}
-
-/// Returns the forced foreground if set, otherwise `None`.
-pub fn forced_foreground() -> Option<(u8, u8, u8)> {
-    forced_fg_cell().lock().ok().and_then(|g| *g)
-}
-
 fn bump_palette_version() {
     DEFAULT_PALETTE_VERSION.fetch_add(1, Ordering::Relaxed);
 }
@@ -116,10 +96,6 @@ pub fn default_colors() -> Option<DefaultColors> {
 }
 
 pub fn default_fg() -> Option<(u8, u8, u8)> {
-    // If a foreground color was forced via config, use it unconditionally.
-    if let Some(rgb) = forced_foreground() {
-        return Some(rgb);
-    }
     default_colors().map(|c| c.fg)
 }
 

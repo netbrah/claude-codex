@@ -11,18 +11,6 @@ pub(crate) fn blend(fg: (u8, u8, u8), bg: (u8, u8, u8), alpha: f32) -> (u8, u8, 
     (r, g, b)
 }
 
-/// Auto-derive a readable foreground for a given background color.
-/// Returns near-black for light backgrounds, near-white for dark ones.
-pub(crate) fn contrasting_fg(bg: (u8, u8, u8)) -> (u8, u8, u8) {
-    if is_light(bg) {
-        // Dark charcoal -- softer than pure black, easy on the eyes.
-        (26, 26, 46) // #1A1A2E
-    } else {
-        // Off-white -- softer than pure white.
-        (240, 240, 240) // #F0F0F0
-    }
-}
-
 /// Returns the perceptual color distance between two RGB colors.
 /// Uses the CIE76 formula (Euclidean distance in Lab space approximation).
 pub(crate) fn perceptual_distance(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {

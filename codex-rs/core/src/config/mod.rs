@@ -359,11 +359,6 @@ pub struct Config {
     /// Forced TUI background color as an RGB tuple parsed from hex.
     pub tui_background: Option<(u8, u8, u8)>,
 
-    /// Forced TUI foreground (text) color as an RGB tuple parsed from hex.
-    /// When `None` but `tui_background` is `Some`, a contrasting foreground
-    /// is auto-derived at startup.
-    pub tui_foreground: Option<(u8, u8, u8)>,
-
     /// The absolute directory that should be treated as the current working
     /// directory for the session. All relative paths inside the business-logic
     /// layer are resolved against this path.
@@ -2833,9 +2828,6 @@ impl Config {
             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
             tui_background: cfg.tui.as_ref().and_then(|t| {
                 t.background.as_deref().and_then(parse_hex_color)
-            }),
-            tui_foreground: cfg.tui.as_ref().and_then(|t| {
-                t.foreground.as_deref().and_then(parse_hex_color)
             }),
             otel: {
                 let t: OtelConfigToml = cfg.otel.unwrap_or_default();
