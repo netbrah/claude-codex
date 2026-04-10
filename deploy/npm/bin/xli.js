@@ -32,7 +32,7 @@ const XLI_BANNER = `
 \x1b[36m   ██╔██╗ ██║     ██║\x1b[0m
 \x1b[36m  ██╔╝ ██╗███████╗██║\x1b[0m
 \x1b[36m  ╚═╝  ╚═╝╚══════╝╚═╝\x1b[0m
-\x1b[2m  Cross-LLM Interface v${PKG_VERSION}\x1b[0m
+\x1b[1m  Claude Codex\x1b[0m \x1b[2mXLI v${PKG_VERSION}\x1b[0m
 `;
 
 // ── Home isolation ──────────────────────────────────────────────────

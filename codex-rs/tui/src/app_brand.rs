@@ -25,27 +25,33 @@ fn brand() -> &'static Brand {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "xli".to_string());
 
-        // Title case: "codex" -> "Codex", "xli" -> "XLI"
-        let app_name_title_case = if app_name.chars().all(|c| c.is_ascii_lowercase()) && app_name.len() <= 4 {
-            // Short all-lowercase names get uppercased: "xli" -> "XLI"
-            app_name.to_ascii_uppercase()
-        } else {
-            // Otherwise title-case the first char
-            let mut chars = app_name.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => {
-                    let mut s = first.to_uppercase().to_string();
-                    s.extend(chars);
-                    s
+        // Display name: "Claude Codex" for branding, falls back to
+        // title-casing the app_name if overridden via env.
+        let app_name_title_case = std::env::var("CODEX_APP_DISPLAY_NAME")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                if app_name == "xli" {
+                    "Claude Codex".to_string()
+                } else if app_name.chars().all(|c| c.is_ascii_lowercase()) && app_name.len() <= 4 {
+                    app_name.to_ascii_uppercase()
+                } else {
+                    let mut chars = app_name.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => {
+                            let mut s = first.to_uppercase().to_string();
+                            s.extend(chars);
+                            s
+                        }
+                    }
                 }
-            }
-        };
+            });
 
         let tagline = std::env::var("CODEX_APP_TAGLINE")
             .ok()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Cross-LLM command-line coding agent".to_string());
+            .unwrap_or_else(|| "Cross-LLM Interface".to_string());
 
         Brand {
             app_name,
@@ -62,13 +68,13 @@ pub(crate) fn app_name() -> &'static str {
 }
 
 /// Title-case app name for welcome messages, descriptions.
-/// Default: `"XLI"`. Override via `CODEX_APP_NAME`.
+/// Default: `"Claude Codex"`. Override via `CODEX_APP_DISPLAY_NAME`.
 pub(crate) fn app_name_display() -> &'static str {
     &brand().app_name_title_case
 }
 
 /// Tagline shown on the welcome screen.
-/// Default: `"Cross-LLM command-line coding agent"`. Override via `CODEX_APP_TAGLINE`.
+/// Default: `"Cross-LLM Interface"`. Override via `CODEX_APP_TAGLINE`.
 pub(crate) fn app_tagline() -> &'static str {
     &brand().tagline
 }
