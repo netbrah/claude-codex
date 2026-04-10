@@ -162,3 +162,25 @@ git rebase dev
 # deploy/ files never conflict with codex-rs/ changes
 git push origin feat/xli-embed-assets --force-with-lease
 ```
+
+---
+
+## Build + Deploy Pipeline
+
+```
+push to dev
+    ↓
+GitHub Actions builds both binaries (~15 min, on their runners)
+    ↓
+you get notified, then locally:
+
+    gh run download <run-id> -D /tmp/xli-artifacts
+    cp /tmp/xli-artifacts/xli-darwin-arm64/xli deploy/npm/vendor/aarch64-apple-darwin/xli/xli
+    cp /tmp/xli-artifacts/xli-linux-amd64/xli deploy/npm/vendor/x86_64-unknown-linux-gnu/xli
+    deploy/upload.sh ship
+```
+
+End users install with:
+```bash
+curl -fsSL https://generic.repo.eng.netapp.com/user/palanisd/xli/release/install.sh | bash
+```
