@@ -810,8 +810,7 @@ impl ModelClientSession {
             },
             prompt_cache_key,
             text,
-            temperature: sampling.temperature,
-            top_p: sampling.top_p,
+            extra: codex_api::sampling_extra(sampling.temperature, sampling.top_p),
         };
         Ok(request)
     }

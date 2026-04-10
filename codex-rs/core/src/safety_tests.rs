@@ -258,7 +258,7 @@ fn missing_project_dot_codex_config_requires_approval() {
     let tmp = TempDir::new().unwrap();
     let cwd = tmp.path().to_path_buf();
     let action =
-        ApplyPatchAction::new_add_for_test(&cwd.join(".xli").join("config.toml"), "".to_string());
+        ApplyPatchAction::new_add_for_test(&cwd.join(".codex").join("config.toml"), "".to_string());
     let sandbox_policy = SandboxPolicy::WorkspaceWrite {
         writable_roots: vec![],
         read_only_access: Default::default(),

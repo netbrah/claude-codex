@@ -1120,12 +1120,12 @@ fn default_read_only_subpaths_for_writable_root(
         subpaths.push(top_level_agents);
     }
 
-    // Keep top-level project metadata under .xli read-only to the agent by
+    // Keep top-level project metadata under .codex read-only to the agent by
     // default. For the workspace root itself, protect it even before the
     // directory exists so first-time creation still goes through the
     // protected-path approval flow.
     #[allow(clippy::expect_used)]
-    let top_level_codex = writable_root.join(".xli").expect("valid relative path");
+    let top_level_codex = writable_root.join(".codex").expect("valid relative path");
     if protect_missing_dot_codex || top_level_codex.as_path().is_dir() {
         subpaths.push(top_level_codex);
     }
@@ -4029,7 +4029,7 @@ mod tests {
     fn restricted_file_system_policy_derives_effective_paths() {
         let cwd = TempDir::new().expect("tempdir");
         std::fs::create_dir_all(cwd.path().join(".agents")).expect("create .agents");
-        std::fs::create_dir_all(cwd.path().join(".xli")).expect("create .xli");
+        std::fs::create_dir_all(cwd.path().join(".codex")).expect("create .codex");
         let canonical_cwd = cwd.path().canonicalize().expect("canonicalize cwd");
         let cwd_absolute =
             AbsolutePathBuf::from_absolute_path(&canonical_cwd).expect("absolute tempdir");
@@ -4039,8 +4039,8 @@ mod tests {
             .expect("canonical secret");
         let expected_agents = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".agents"))
             .expect("canonical .agents");
-        let expected_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".xli"))
-            .expect("canonical .xli");
+        let expected_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".codex"))
+            .expect("canonical .codex");
         let policy = FileSystemSandboxPolicy::restricted(vec![
             FileSystemSandboxEntry {
                 path: FileSystemPath::Special {
@@ -4108,8 +4108,8 @@ mod tests {
         let expected_docs_public =
             AbsolutePathBuf::from_absolute_path(canonical_cwd.join("docs/public"))
                 .expect("canonical docs/public");
-        let expected_dot_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".xli"))
-            .expect("canonical .xli");
+        let expected_dot_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".codex"))
+            .expect("canonical .codex");
         let policy = FileSystemSandboxPolicy::restricted(vec![
             FileSystemSandboxEntry {
                 path: FileSystemPath::Special {
@@ -4149,8 +4149,8 @@ mod tests {
         let docs =
             AbsolutePathBuf::resolve_path_against_base("docs", cwd.path()).expect("resolve docs");
         let canonical_cwd = cwd.path().canonicalize().expect("canonicalize cwd");
-        let expected_dot_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".xli"))
-            .expect("canonical .xli");
+        let expected_dot_codex = AbsolutePathBuf::from_absolute_path(canonical_cwd.join(".codex"))
+            .expect("canonical .codex");
         let policy = SandboxPolicy::WorkspaceWrite {
             writable_roots: vec![],
             read_only_access: ReadOnlyAccess::Restricted {

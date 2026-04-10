@@ -1,5 +1,5 @@
-pub mod messages;
-pub mod responses;
+pub(crate) mod messages;
+pub(crate) mod responses;
 
 pub use messages::spawn_messages_stream;
 pub use responses::process_sse;

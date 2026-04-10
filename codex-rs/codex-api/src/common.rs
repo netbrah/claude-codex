@@ -171,10 +171,10 @@ pub struct ResponsesApiRequest {
     pub prompt_cache_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<TextControls>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_p: Option<f64>,
+    /// Extension fields (e.g. sampling params) that are serialized as
+    /// top-level JSON keys without modifying the upstream struct layout.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 impl From<&ResponsesApiRequest> for ResponseCreateWsRequest {
@@ -194,10 +194,9 @@ impl From<&ResponsesApiRequest> for ResponseCreateWsRequest {
             service_tier: request.service_tier.clone(),
             prompt_cache_key: request.prompt_cache_key.clone(),
             text: request.text.clone(),
-            temperature: request.temperature,
-            top_p: request.top_p,
             generate: None,
             client_metadata: None,
+            extra: request.extra.clone(),
         }
     }
 }
@@ -223,13 +222,12 @@ pub struct ResponseCreateWsRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<TextControls>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_p: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub generate: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_metadata: Option<HashMap<String, String>>,
+    /// Extension fields (e.g. sampling params) serialized as top-level keys.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 pub fn response_create_client_metadata(
@@ -279,6 +277,24 @@ pub fn create_text_param_for_request(
             name: "codex_output_schema".to_string(),
         }),
     })
+}
+
+/// Build the `extra` extension map for sampling parameters.
+///
+/// Returns an empty map when no sampling overrides are set, which means the
+/// `#[serde(flatten)]` on the request struct will produce no extra JSON keys.
+pub fn sampling_extra(
+    temperature: Option<f64>,
+    top_p: Option<f64>,
+) -> HashMap<String, serde_json::Value> {
+    let mut extra = HashMap::new();
+    if let Some(t) = temperature {
+        extra.insert("temperature".to_string(), serde_json::json!(t));
+    }
+    if let Some(p) = top_p {
+        extra.insert("top_p".to_string(), serde_json::json!(p));
+    }
+    extra
 }
 
 pub struct ResponseStream {

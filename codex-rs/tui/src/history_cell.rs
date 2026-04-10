@@ -43,7 +43,7 @@ use codex_app_server_protocol::McpServerStatus;
 use codex_config::types::McpServerTransportConfig;
 use codex_core::config::Config;
 #[cfg(test)]
-use codex_core::mcp::McpManager;
+use codex_core::McpManager;
 #[cfg(test)]
 use codex_core::plugins::PluginsManager;
 use codex_core::web_search::web_search_detail;
