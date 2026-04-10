@@ -42,7 +42,7 @@ ok "Source synced (including vendor/)"
 
 # ── Step 2: Sync cargo git deps (private forks blocked by corp proxy) ───────
 info "Syncing cargo git dependencies..."
-for name in $(ls "$HOME/.cargo/git/db/" | grep -E 'crossterm-|nucleo-|ratatui-|rules_rust-|tokio-tungstenite-|tungstenite-rs-'); do
+for name in $(ls "$HOME/.cargo/git/db/" | grep -E 'crossterm-|nucleo-|ratatui-|rules_rust-|rust-sdks-|tokio-tungstenite-|tungstenite-rs-'); do
     rsync -az "$HOME/.cargo/git/db/$name" "$REMOTE:~/.cargo/git/db/" 2>/dev/null
     rsync -az "$HOME/.cargo/git/checkouts/$name" "$REMOTE:~/.cargo/git/checkouts/" 2>/dev/null
 done
@@ -65,6 +65,7 @@ SSH_OPTS="-o ServerAliveInterval=60 -o ServerAliveCountMax=30"
 ssh $SSH_OPTS "$REMOTE" bash <<REMOTE_SCRIPT
 export PATH=\$HOME/.cargo/bin:\$PATH
 export RUSTUP_TOOLCHAIN=1.94.1-x86_64-unknown-linux-gnu
+export RUSTUP_NO_UPDATE_CHECK=1
 cd $REMOTE_DIR/codex-rs
 
 echo "  rustc: \$(rustc --version)"
