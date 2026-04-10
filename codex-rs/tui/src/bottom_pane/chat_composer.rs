@@ -317,6 +317,7 @@ pub(crate) struct ChatComposer {
     #[cfg(not(target_os = "linux"))]
     next_element_id: u64,
     context_window_used_tokens: Option<i64>,
+    context_window_size: Option<i64>,
     skills: Option<Vec<SkillMetadata>>,
     plugins: Option<Vec<PluginCapabilitySummary>>,
     connectors_snapshot: Option<ConnectorsSnapshot>,
@@ -439,6 +440,7 @@ impl ChatComposer {
             #[cfg(not(target_os = "linux"))]
             next_element_id: 0,
             context_window_used_tokens: None,
+            context_window_size: None,
             skills: None,
             plugins: None,
             connectors_snapshot: None,
@@ -2808,6 +2810,7 @@ impl ChatComposer {
             is_wsl,
             context_window_percent: self.context_window_percent,
             context_window_used_tokens: self.context_window_used_tokens,
+            context_window_size: self.context_window_size,
             status_line_value: self.status_line_value.clone(),
             status_line_enabled: self.status_line_enabled,
             active_agent_label: self.active_agent_label.clone(),
@@ -3291,13 +3294,21 @@ impl ChatComposer {
         self.is_task_running = running;
     }
 
-    pub(crate) fn set_context_window(&mut self, percent: Option<i64>, used_tokens: Option<i64>) {
-        if self.context_window_percent == percent && self.context_window_used_tokens == used_tokens
+    pub(crate) fn set_context_window(
+        &mut self,
+        percent: Option<i64>,
+        used_tokens: Option<i64>,
+        window_size: Option<i64>,
+    ) {
+        if self.context_window_percent == percent
+            && self.context_window_used_tokens == used_tokens
+            && self.context_window_size == window_size
         {
             return;
         }
         self.context_window_percent = percent;
         self.context_window_used_tokens = used_tokens;
+        self.context_window_size = window_size;
     }
 
     pub(crate) fn set_esc_backtrack_hint(&mut self, show: bool) {
@@ -3562,6 +3573,7 @@ impl ChatComposer {
                     Some(context_window_line(
                         footer_props.context_window_percent,
                         footer_props.context_window_used_tokens,
+                        footer_props.context_window_size,
                     ))
                 };
                 let right_width = right_line.as_ref().map(|l| l.width() as u16).unwrap_or(0);
@@ -4123,7 +4135,7 @@ mod tests {
         ) {
             composer.set_collaboration_modes_enabled(/*enabled*/ true);
             composer.set_collaboration_mode_indicator(indicator);
-            composer.set_context_window(Some(context_percent), /*used_tokens*/ None);
+            composer.set_context_window(Some(context_percent), /*used_tokens*/ None, /*window_size*/ None);
         }
 
         // Empty textarea, agent idle: shortcuts hint can show, and cycle hint is hidden.

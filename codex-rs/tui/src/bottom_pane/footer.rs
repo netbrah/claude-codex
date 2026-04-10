@@ -76,6 +76,7 @@ pub(crate) struct FooterProps {
     pub(crate) quit_shortcut_key: KeyBinding,
     pub(crate) context_window_percent: Option<i64>,
     pub(crate) context_window_used_tokens: Option<i64>,
+    pub(crate) context_window_size: Option<i64>,
     pub(crate) status_line_value: Option<Line<'static>>,
     pub(crate) status_line_enabled: bool,
     /// Active thread label shown when the footer is rendering contextual information instead of an
@@ -845,12 +846,31 @@ fn build_columns(entries: Vec<Line<'static>>) -> Vec<Line<'static>> {
         .collect()
 }
 
-pub(crate) fn context_window_line(percent: Option<i64>, used_tokens: Option<i64>) -> Line<'static> {
+pub(crate) fn context_window_line(
+    percent: Option<i64>,
+    used_tokens: Option<i64>,
+    window_size: Option<i64>,
+) -> Line<'static> {
+    // Rich format: token counts + percentage (e.g. "35.8K/128K (72% left)")
+    if let (Some(tokens), Some(window)) = (used_tokens, window_size) {
+        let used_fmt = format_tokens_compact(tokens);
+        let window_fmt = format_tokens_compact(window);
+        if let Some(percent) = percent {
+            let percent = percent.clamp(0, 100);
+            return Line::from(vec![
+                Span::from(format!("{used_fmt}/{window_fmt} ({percent}% left)")).dim(),
+            ]);
+        }
+        return Line::from(vec![Span::from(format!("{used_fmt}/{window_fmt}")).dim()]);
+    }
+
+    // Fallback: percent only
     if let Some(percent) = percent {
         let percent = percent.clamp(0, 100);
         return Line::from(vec![Span::from(format!("{percent}% context left")).dim()]);
     }
 
+    // Fallback: tokens only
     if let Some(tokens) = used_tokens {
         let used_fmt = format_tokens_compact(tokens);
         return Line::from(vec![Span::from(format!("{used_fmt} used")).dim()]);
@@ -1151,6 +1171,7 @@ mod tests {
                     Some(context_window_line(
                         props.context_window_percent,
                         props.context_window_used_tokens,
+                        props.context_window_size,
                     ))
                 };
                 let right_width = right_line
@@ -1275,6 +1296,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1293,6 +1315,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1311,6 +1334,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1329,6 +1353,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1347,6 +1372,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1365,6 +1391,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1383,6 +1410,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1401,6 +1429,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: Some(72),
                 context_window_used_tokens: None,
+                context_window_size: Some(128_000),
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1419,6 +1448,27 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: Some(123_456),
+                context_window_size: None,
+                status_line_value: None,
+                status_line_enabled: false,
+                active_agent_label: None,
+            },
+        );
+
+        // Rich format: "35.8K/128K (72% left)" when all three values are available.
+        snapshot_footer(
+            "footer_context_rich_format",
+            FooterProps {
+                mode: FooterMode::ComposerEmpty,
+                esc_backtrack_hint: false,
+                use_shift_enter_hint: false,
+                is_task_running: false,
+                collaboration_modes_enabled: false,
+                is_wsl: false,
+                quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
+                context_window_percent: Some(72),
+                context_window_used_tokens: Some(35_840),
+                context_window_size: Some(128_000),
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1437,6 +1487,7 @@ mod tests {
                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
                 context_window_percent: None,
                 context_window_used_tokens: None,
+                context_window_size: None,
                 status_line_value: None,
                 status_line_enabled: false,
                 active_agent_label: None,
@@ -1453,6 +1504,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: None,
             status_line_enabled: false,
             active_agent_label: None,
@@ -1482,6 +1534,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: None,
             status_line_enabled: false,
             active_agent_label: None,
@@ -1504,6 +1557,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: Some(Line::from("Status line content".to_string())),
             status_line_enabled: true,
             active_agent_label: None,
@@ -1521,6 +1575,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: Some(Line::from("Status line content".to_string())),
             status_line_enabled: true,
             active_agent_label: None,
@@ -1538,6 +1593,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: Some(Line::from("Status line content".to_string())),
             status_line_enabled: true,
             active_agent_label: None,
@@ -1555,6 +1611,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: Some(50),
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: None, // command timed out / empty
             status_line_enabled: true,
             active_agent_label: None,
@@ -1577,6 +1634,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: Some(50),
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: None,
             status_line_enabled: false,
             active_agent_label: None,
@@ -1599,6 +1657,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: Some(50),
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: None,
             status_line_enabled: true,
             active_agent_label: None,
@@ -1622,6 +1681,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: Some(50),
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: Some(Line::from(
                 "Status line content that should truncate before the mode indicator".to_string(),
             )),
@@ -1646,6 +1706,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: None,
             status_line_enabled: false,
             active_agent_label: Some("Robie [explorer]".to_string()),
@@ -1663,12 +1724,36 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: Some(Line::from("Status line content".to_string())),
             status_line_enabled: true,
             active_agent_label: Some("Robie [explorer]".to_string()),
         };
 
         snapshot_footer("footer_status_line_with_active_agent_label", props);
+    }
+
+    #[test]
+    fn context_window_line_format_variants() {
+        // Rich format: tokens + window + percent
+        let line = context_window_line(Some(72), Some(35_840), Some(128_000));
+        assert_eq!(line.to_string(), "35.8K/128K (72% left)");
+
+        // Tokens + window, no percent
+        let line = context_window_line(None, Some(45_000), Some(200_000));
+        assert_eq!(line.to_string(), "45K/200K");
+
+        // Percent only (no used_tokens)
+        let line = context_window_line(Some(50), None, None);
+        assert_eq!(line.to_string(), "50% context left");
+
+        // Tokens only (no window)
+        let line = context_window_line(None, Some(88_000), None);
+        assert_eq!(line.to_string(), "88K used");
+
+        // Nothing known
+        let line = context_window_line(None, None, None);
+        assert_eq!(line.to_string(), "100% context left");
     }
 
     #[test]
@@ -1683,6 +1768,7 @@ mod tests {
             quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
             context_window_percent: Some(50),
             context_window_used_tokens: None,
+            context_window_size: None,
             status_line_value: Some(Line::from(
                 "Status line content that is definitely too long to fit alongside the mode label"
                     .to_string(),

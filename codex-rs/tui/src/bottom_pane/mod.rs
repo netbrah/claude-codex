@@ -190,6 +190,7 @@ pub(crate) struct BottomPane {
     pending_thread_approvals: PendingThreadApprovals,
     context_window_percent: Option<i64>,
     context_window_used_tokens: Option<i64>,
+    context_window_size: Option<i64>,
 }
 
 pub(crate) struct BottomPaneParams {
@@ -241,6 +242,7 @@ impl BottomPane {
             animations_enabled,
             context_window_percent: None,
             context_window_used_tokens: None,
+            context_window_size: None,
         }
     }
 
@@ -760,16 +762,27 @@ impl BottomPane {
         }
     }
 
-    pub(crate) fn set_context_window(&mut self, percent: Option<i64>, used_tokens: Option<i64>) {
-        if self.context_window_percent == percent && self.context_window_used_tokens == used_tokens
+    pub(crate) fn set_context_window(
+        &mut self,
+        percent: Option<i64>,
+        used_tokens: Option<i64>,
+        window_size: Option<i64>,
+    ) {
+        if self.context_window_percent == percent
+            && self.context_window_used_tokens == used_tokens
+            && self.context_window_size == window_size
         {
             return;
         }
 
         self.context_window_percent = percent;
         self.context_window_used_tokens = used_tokens;
-        self.composer
-            .set_context_window(percent, self.context_window_used_tokens);
+        self.context_window_size = window_size;
+        self.composer.set_context_window(
+            percent,
+            self.context_window_used_tokens,
+            self.context_window_size,
+        );
         self.request_redraw();
     }
 
