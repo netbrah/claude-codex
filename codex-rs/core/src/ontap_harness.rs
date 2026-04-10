@@ -25,6 +25,10 @@ fn is_ontap_workspace(cwd: &Path) -> bool {
 
 /// Parse `XLI_ONTAP_HARNESS`. Returns `None` when the feature is disabled.
 /// Returns `Some(None)` for auto mode, `Some(Some(path))` for explicit path.
+///
+/// Disabled by default — ONTAP harness is a ~47K token injection that only
+/// makes sense in ONTAP workspaces. Set `XLI_ONTAP_HARNESS=auto` in your
+/// shell profile when working on ONTAP.
 fn parse_env_var() -> Option<Option<PathBuf>> {
     let val = match std::env::var("XLI_ONTAP_HARNESS") {
         Ok(v) if !v.is_empty() => v,
