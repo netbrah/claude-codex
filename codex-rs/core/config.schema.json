@@ -1848,11 +1848,6 @@
           "description": "Enable animations (welcome screen, shimmer effects, spinners). Defaults to `true`.",
           "type": "boolean"
         },
-        "background": {
-          "default": null,
-          "description": "Force a custom background color for the entire TUI.\n\nAccepts a CSS-style hex color (e.g. `\"#FFF0E0\"` for light peach). When set, the TUI paints every cell with this background and all adaptive styling (diff colors, message tints, shimmer) auto-adjusts as if the terminal had this background. The syntax theme (`/theme` picker) remains independent.",
-          "type": "string"
-        },
         "model_availability_nux": {
           "allOf": [
             {
@@ -2505,14 +2500,6 @@
     "model_provider": {
       "description": "Provider to use from the model_providers map.",
       "type": "string"
-    },
-    "model_provider_routing": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "default": {},
-      "description": "Maps model name glob patterns to provider IDs for automatic provider resolution when spawning subagents with a different model. Keys are glob-style patterns (e.g. `\"claude-*\"`) and values are keys into `model_providers`.",
-      "type": "object"
     },
     "model_providers": {
       "additionalProperties": {

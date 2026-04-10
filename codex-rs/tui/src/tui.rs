@@ -585,19 +585,6 @@ impl Tui {
             }
 
             terminal.draw(|frame| {
-                // If a forced background color is configured, paint every cell
-                // in the viewport with that color before widgets render. This
-                // ensures the entire TUI surface uses the forced background
-                // instead of the terminal emulator's native bg.
-                if let Some(rgb) = crate::terminal_palette::forced_background() {
-                    let bg = crate::terminal_palette::rgb_color(rgb);
-                    let area = frame.area();
-                    for y in area.top()..area.bottom() {
-                        for x in area.left()..area.right() {
-                            frame.buffer[(x, y)].set_bg(bg);
-                        }
-                    }
-                }
                 draw_fn(frame);
             })
         })?

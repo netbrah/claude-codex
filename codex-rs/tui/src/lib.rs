@@ -1301,21 +1301,6 @@ async fn run_ratatui_app(
         config.startup_warnings.push(w);
     }
 
-    // Apply forced background color from config. This overrides the
-    // terminal-queried background so all adaptive styling auto-adjusts.
-    if let Some(bg) = config.tui_background {
-        crate::terminal_palette::set_forced_background(Some(bg));
-
-        // Apply explicit foreground, or auto-derive a contrasting one so
-        // text is always readable regardless of the terminal's native fg.
-        let fg = config.tui_foreground.unwrap_or_else(|| {
-            crate::color::contrasting_fg(bg)
-        });
-        crate::terminal_palette::set_forced_foreground(Some(fg));
-    } else if let Some(fg) = config.tui_foreground {
-        crate::terminal_palette::set_forced_foreground(Some(fg));
-    }
-
     set_default_client_residency_requirement(config.enforce_residency.value());
     let active_profile = config.active_profile.clone();
     let should_show_trust_screen = should_show_trust_screen(&config);
