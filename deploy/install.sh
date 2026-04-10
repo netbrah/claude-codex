@@ -144,6 +144,11 @@ else
     printf "  ${_D}  config.toml exists (not overwriting)${_R}\n" >&2
 fi
 
+# ── Clean stale caches ───────────────────────────────────────────────
+# Remove version.json from pre-Artifactory installs that cached the
+# upstream openai/codex release version (e.g. 0.118.0).
+rm -f "$XLI_HOME/version.json" 2>/dev/null
+
 # ── PATH setup ────────────────────────────────────────────────────────
 _path_added=false
 _shell_rc=""
