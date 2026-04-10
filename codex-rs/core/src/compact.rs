@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::ModelProviderInfo;
 use crate::Prompt;
 use crate::client::ModelClientSession;
 use crate::client_common::ResponseEvent;
@@ -9,10 +8,10 @@ use crate::codex::PreviousTurnSettings;
 use crate::codex::Session;
 use crate::codex::TurnContext;
 use crate::codex::get_last_assistant_message_from_turn;
-use crate::error::CodexErr;
-use crate::error::Result as CodexResult;
-use crate::model_provider_info::WireApi;
 use crate::util::backoff;
+use codex_model_provider_info::ModelProviderInfo;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::Result as CodexResult;
 use codex_protocol::items::ContextCompactionItem;
 use codex_protocol::items::TurnItem;
 use codex_protocol::models::ContentItem;
@@ -33,19 +32,6 @@ pub const SUMMARIZATION_PROMPT: &str = include_str!("../templates/compact/prompt
 pub const SUMMARY_PREFIX: &str = include_str!("../templates/compact/summary_prefix.md");
 const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
 
-/// Fraction of history (by serialized size) to preserve verbatim after compaction.
-const PRESERVE_FRACTION: f64 = 0.3;
-
-/// Minimum number of pre-compact items required to activate the 70/30 split.
-///
-/// Below this threshold, the classic user-messages + summary assembly is used.
-/// The threshold prevents the split from preserving initial context items
-/// (developer instructions, environment context) in the "recent 30%" portion,
-/// which would cause duplication when the next turn re-injects initial context.
-/// Long histories (>= 20 items) naturally place the split well past the
-/// initial context prefix, avoiding this issue.
-const MIN_ITEMS_FOR_SPLIT: usize = 20;
-
 /// Controls whether compaction replacement history must include initial context.
 ///
 /// Pre-turn/manual compaction variants use `DoNotInject`: they replace history with a summary and
@@ -61,13 +47,8 @@ pub(crate) enum InitialContextInjection {
     DoNotInject,
 }
 
-/// Whether to use the server-side `/responses/compact` endpoint.
-///
-/// Only available for OpenAI providers using the Responses wire API.
-/// Non-OpenAI providers (e.g. Anthropic Messages API) always use
-/// inline (local LLM) compaction.
 pub(crate) fn should_use_remote_compact_task(provider: &ModelProviderInfo) -> bool {
-    provider.is_openai() && provider.wire_api == WireApi::Responses
+    provider.is_openai()
 }
 
 pub(crate) async fn run_inline_auto_compact_task(
@@ -93,6 +74,7 @@ pub(crate) async fn run_compact_task(
 ) -> CodexResult<()> {
     let start_event = EventMsg::TurnStarted(TurnStartedEvent {
         turn_id: turn_context.sub_id.clone(),
+        started_at: turn_context.turn_timing_state.started_at_unix_secs().await,
         model_context_window: turn_context.model_context_window(),
         collaboration_mode_kind: turn_context.collaboration_mode.mode,
     });
@@ -118,7 +100,6 @@ async fn run_compact_task_inner(
     let initial_input_for_turn: ResponseInputItem = ResponseInputItem::from(input);
 
     let mut history = sess.clone_history().await;
-    let pre_compact_items: Vec<ResponseItem> = history.raw_items().to_vec();
     history.record_items(
         &[initial_input_for_turn.into()],
         turn_context.truncation_policy,
@@ -212,41 +193,9 @@ async fn run_compact_task_inner(
     let history_items = history_snapshot.raw_items();
     let summary_suffix = get_last_assistant_message_from_turn(history_items).unwrap_or_default();
     let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
+    let user_messages = collect_user_messages(history_items);
 
-    let use_split = pre_compact_items.len() >= MIN_ITEMS_FOR_SPLIT;
-    let preserved_items: Vec<ResponseItem> = if use_split {
-        let split_point = find_compact_split_point(&pre_compact_items);
-        pre_compact_items.get(split_point..).unwrap_or(&[]).to_vec()
-    } else {
-        Vec::new()
-    };
-
-    let mut new_history = if !preserved_items.is_empty() {
-        let mut h = Vec::new();
-        h.push(ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: summary_text.clone(),
-            }],
-            end_turn: None,
-            phase: None,
-        });
-        h.push(ResponseItem::Message {
-            id: None,
-            role: "assistant".to_string(),
-            content: vec![ContentItem::OutputText {
-                text: "Understood, continuing.".to_string(),
-            }],
-            end_turn: None,
-            phase: None,
-        });
-        h.extend(preserved_items);
-        h
-    } else {
-        let user_messages = collect_user_messages(history_items);
-        build_compacted_history(Vec::new(), &user_messages, &summary_text)
-    };
+    let mut new_history = build_compacted_history(Vec::new(), &user_messages, &summary_text);
 
     if matches!(
         initial_context_injection,
@@ -272,6 +221,7 @@ async fn run_compact_task_inner(
     };
     sess.replace_compacted_history(new_history, reference_context_item, compacted_item)
         .await;
+    client_session.reset_websocket_session();
     sess.recompute_token_usage(&turn_context).await;
 
     sess.emit_turn_item_completed(&turn_context, compaction_item)
@@ -281,52 +231,6 @@ async fn run_compact_task_inner(
     });
     sess.send_event(&turn_context, warning).await;
     Ok(())
-}
-
-/// Returns the index at which to split history for compaction.
-///
-/// Items before the index are summarized; items at/after are preserved verbatim.
-/// The split targets ~70% summarized / ~30% preserved (by serialized character
-/// count), and always lands on a user message boundary to avoid splitting
-/// tool_call/tool_result pairs.
-pub(crate) fn find_compact_split_point(items: &[ResponseItem]) -> usize {
-    if items.is_empty() {
-        return 0;
-    }
-
-    let char_counts: Vec<usize> = items
-        .iter()
-        .map(|item| serde_json::to_string(item).map(|s| s.len()).unwrap_or(0))
-        .collect();
-    let total: usize = char_counts.iter().sum();
-    let target = (total as f64 * (1.0 - PRESERVE_FRACTION)) as usize;
-
-    let mut accumulated = 0;
-    for (i, count) in char_counts.iter().enumerate() {
-        accumulated += count;
-        if accumulated >= target {
-            return find_next_user_message_boundary(items, i);
-        }
-    }
-    items.len()
-}
-
-fn find_next_user_message_boundary(items: &[ResponseItem], from: usize) -> usize {
-    for i in from..items.len() {
-        if let ResponseItem::Message { role, content, .. } = &items[i] {
-            if role == "user" && !content.is_empty() {
-                let text = content_items_to_text(content).unwrap_or_default();
-                if !is_summary_message(&text) && !is_tool_response_content(&text) {
-                    return i;
-                }
-            }
-        }
-    }
-    items.len()
-}
-
-fn is_tool_response_content(text: &str) -> bool {
-    text.starts_with("{\"type\":\"tool_result\"") || text.starts_with("<tool_result")
 }
 
 pub fn content_items_to_text(content: &[ContentItem]) -> Option<String> {
@@ -502,7 +406,7 @@ async fn drain_to_completed(
             turn_context.reasoning_effort,
             turn_context.reasoning_summary,
             turn_context.config.service_tier,
-            turn_context.config.sampling,
+            crate::config::SamplingParams::default(),
             turn_metadata_header,
         )
         .await?;

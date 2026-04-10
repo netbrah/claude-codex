@@ -1,11 +1,9 @@
 use super::ShellRequest;
-use crate::error::CodexErr;
-use crate::error::SandboxErr;
 use crate::exec::ExecCapturePolicy;
 use crate::exec::ExecExpiration;
-use crate::exec::ExecToolCallOutput;
 use crate::exec::is_likely_sandbox_denied;
 use crate::guardian::GuardianApprovalRequest;
+use crate::guardian::guardian_rejection_message;
 use crate::guardian::review_approval_request;
 use crate::guardian::routes_approval_to_guardian;
 use crate::sandboxing::ExecOptions;
@@ -23,6 +21,10 @@ use codex_execpolicy::Policy;
 use codex_execpolicy::RuleMatch;
 use codex_features::Feature;
 use codex_protocol::config_types::WindowsSandboxLevel;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::SandboxErr;
+use codex_protocol::exec_output::ExecToolCallOutput;
+use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::NetworkSandboxPolicy;
@@ -131,7 +133,7 @@ pub(super) async fn try_run_zsh_fork(
         sandbox_policy,
         file_system_sandbox_policy,
         network_sandbox_policy,
-        windows_restricted_token_filesystem_overlay: _windows_restricted_token_filesystem_overlay,
+        windows_sandbox_filesystem_overrides: _windows_sandbox_filesystem_overrides,
         arg0,
     } = sandbox_exec_request;
     let ParsedShellCommand { script, login, .. } = extract_shell_script(&command)?;
@@ -468,7 +470,13 @@ impl CoreShellActionProvider {
                             }
                         },
                         ReviewDecision::Denied => {
-                            EscalationDecision::deny(Some("User denied execution".to_string()))
+                            let message = if routes_approval_to_guardian(&self.turn) {
+                                guardian_rejection_message(self.session.as_ref(), &self.call_id)
+                                    .await
+                            } else {
+                                "User denied execution".to_string()
+                            };
+                            EscalationDecision::deny(Some(message))
                         }
                         ReviewDecision::Abort => {
                             EscalationDecision::deny(Some("User cancelled execution".to_string()))
@@ -657,7 +665,7 @@ fn commands_for_intercepted_exec_policy(
 
 struct CoreShellCommandExecutor {
     command: Vec<String>,
-    cwd: PathBuf,
+    cwd: AbsolutePathBuf,
     sandbox_policy: SandboxPolicy,
     file_system_sandbox_policy: FileSystemSandboxPolicy,
     network_sandbox_policy: NetworkSandboxPolicy,
@@ -714,7 +722,7 @@ impl ShellCommandExecutor for CoreShellCommandExecutor {
                 sandbox_policy: self.sandbox_policy.clone(),
                 file_system_sandbox_policy: self.file_system_sandbox_policy.clone(),
                 network_sandbox_policy: self.network_sandbox_policy,
-                windows_restricted_token_filesystem_overlay: None,
+                windows_sandbox_filesystem_overrides: None,
                 arg0: self.arg0.clone(),
             },
             /*stdout_stream*/ None,
@@ -826,7 +834,7 @@ impl CoreShellCommandExecutor {
         let command = SandboxCommand {
             program: program.clone().into(),
             args: args.to_vec(),
-            cwd: workdir.to_path_buf(),
+            cwd: workdir.clone(),
             env,
             additional_permissions,
         };
@@ -843,7 +851,7 @@ impl CoreShellCommandExecutor {
             enforce_managed_network: self.network.is_some(),
             network: self.network.as_ref(),
             sandbox_policy_cwd: &self.sandbox_policy_cwd,
-            codex_linux_sandbox_exe: self.codex_linux_sandbox_exe.as_ref(),
+            codex_linux_sandbox_exe: self.codex_linux_sandbox_exe.as_deref(),
             use_legacy_landlock: self.use_legacy_landlock,
             windows_sandbox_level: self.windows_sandbox_level,
             windows_sandbox_private_desktop: false,
@@ -856,7 +864,7 @@ impl CoreShellCommandExecutor {
 
         Ok(PreparedExec {
             command: exec_request.command,
-            cwd: exec_request.cwd,
+            cwd: exec_request.cwd.to_path_buf(),
             env: exec_request.env,
             arg0: exec_request.arg0,
         })
@@ -901,9 +909,9 @@ fn map_exec_result(
 ) -> Result<ExecToolCallOutput, ToolError> {
     let output = ExecToolCallOutput {
         exit_code: result.exit_code,
-        stdout: crate::exec::StreamOutput::new(result.stdout.clone()),
-        stderr: crate::exec::StreamOutput::new(result.stderr.clone()),
-        aggregated_output: crate::exec::StreamOutput::new(result.output.clone()),
+        stdout: StreamOutput::new(result.stdout.clone()),
+        stderr: StreamOutput::new(result.stderr.clone()),
+        aggregated_output: StreamOutput::new(result.output.clone()),
         duration: result.duration,
         timed_out: result.timed_out,
     };

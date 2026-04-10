@@ -5,7 +5,6 @@ use crate::codex::TurnContext;
 use crate::config::Config;
 use crate::config::SamplingParams;
 use crate::contextual_user_message::is_memory_excluded_contextual_user_fragment;
-use crate::error::CodexErr;
 use crate::memories::metrics;
 use crate::memories::phase_one;
 use crate::memories::phase_one::PRUNE_BATCH_SIZE;
@@ -17,6 +16,7 @@ use codex_config::types::MemoriesConfig;
 use codex_otel::SessionTelemetry;
 use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
 use codex_protocol::config_types::ServiceTier;
+use codex_protocol::error::CodexErr;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
@@ -231,7 +231,7 @@ async fn build_request_context(session: &Arc<Session>, config: &Config) -> Reque
     let model = session
         .services
         .models_manager
-        .get_model_info(&model_name, config)
+        .get_model_info(&model_name, &config.to_models_manager_config())
         .await;
     let turn_context = session.new_default_turn().await;
     RequestContext::from_turn_context(
@@ -470,7 +470,7 @@ mod job {
     /// Serializes filtered stage-1 memory items for prompt inclusion.
     pub(super) fn serialize_filtered_rollout_response_items(
         items: &[RolloutItem],
-    ) -> crate::error::Result<String> {
+    ) -> codex_protocol::error::Result<String> {
         let filtered = items
             .iter()
             .filter_map(|item| {

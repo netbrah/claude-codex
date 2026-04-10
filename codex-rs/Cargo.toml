@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "account",
     "analytics",
     "backend-client",
     "ansi-escape",
@@ -20,6 +21,7 @@ members = [
     "cloud-tasks-client",
     "cloud-tasks-mock-client",
     "cli",
+    "collaboration-mode-templates",
     "connectors",
     "config",
     "shell-command",
@@ -41,13 +43,17 @@ members = [
     "login",
     "codex-mcp",
     "mcp-server",
+    "model-provider-info",
+    "models-manager",
     "network-proxy",
     "ollama",
     "process-hardening",
     "protocol",
+    "realtime-webrtc",
     "rollout",
     "rmcp-client",
     "responses-api-proxy",
+    "response-debug-context",
     "sandboxing",
     "stdio-to-uds",
     "otel",
@@ -99,6 +105,7 @@ license = "Apache-2.0"
 # Internal
 app_test_support = { path = "app-server/tests/common" }
 codex-analytics = { path = "analytics" }
+codex-account = { path = "account" }
 codex-ansi-escape = { path = "ansi-escape" }
 codex-api = { path = "codex-api" }
 codex-app-server = { path = "app-server" }
@@ -112,6 +119,7 @@ codex-backend-client = { path = "backend-client" }
 codex-chatgpt = { path = "chatgpt" }
 codex-cli = { path = "cli" }
 codex-client = { path = "codex-client" }
+codex-collaboration-mode-templates = { path = "collaboration-mode-templates" }
 codex-cloud-requirements = { path = "cloud-requirements" }
 codex-cloud-tasks-client = { path = "cloud-tasks-client" }
 codex-cloud-tasks-mock-client = { path = "cloud-tasks-mock-client" }
@@ -136,13 +144,17 @@ codex-lmstudio = { path = "lmstudio" }
 codex-login = { path = "login" }
 codex-mcp = { path = "codex-mcp" }
 codex-mcp-server = { path = "mcp-server" }
+codex-model-provider-info = { path = "model-provider-info" }
+codex-models-manager = { path = "models-manager" }
 codex-network-proxy = { path = "network-proxy" }
 codex-ollama = { path = "ollama" }
 codex-otel = { path = "otel" }
 codex-plugin = { path = "plugin" }
 codex-process-hardening = { path = "process-hardening" }
 codex-protocol = { path = "protocol" }
+codex-realtime-webrtc = { path = "realtime-webrtc" }
 codex-responses-api-proxy = { path = "responses-api-proxy" }
+codex-response-debug-context = { path = "response-debug-context" }
 codex-rmcp-client = { path = "rmcp-client" }
 codex-rollout = { path = "rollout" }
 codex-sandboxing = { path = "sandboxing" }
@@ -342,6 +354,7 @@ vt100 = "0.16.2"
 walkdir = "2.5.0"
 webbrowser = "1.0"
 which = "8"
+whoami = "1.6.1"
 wildmatch = "2.6.1"
 zip = "2.4.2"
 zstd = "0.13"

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use codex_api::OpenAiVerbosity;
 use codex_api::ResponsesApiRequest;
-use codex_api::common::OpenAiVerbosity;
-use codex_api::common::TextControls;
+use codex_api::TextControls;
 use codex_api::create_text_param_for_request;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::models::FunctionCallOutputPayload;
@@ -30,6 +30,7 @@ fn serializes_text_verbosity_when_set() {
             verbosity: Some(OpenAiVerbosity::Low),
             format: None,
         }),
+        client_metadata: None,
         extra: HashMap::new(),
     };
 
@@ -71,6 +72,7 @@ fn serializes_text_schema_with_strict_format() {
         prompt_cache_key: None,
         service_tier: None,
         text: Some(text_controls),
+        client_metadata: None,
         extra: HashMap::new(),
     };
 
@@ -109,6 +111,7 @@ fn omits_text_when_not_set() {
         prompt_cache_key: None,
         service_tier: None,
         text: None,
+        client_metadata: None,
         extra: HashMap::new(),
     };
 
@@ -132,6 +135,7 @@ fn serializes_flex_service_tier_when_set() {
         prompt_cache_key: None,
         service_tier: Some(ServiceTier::Flex.to_string()),
         text: None,
+        client_metadata: None,
         extra: HashMap::new(),
     };
 

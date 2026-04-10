@@ -743,11 +743,7 @@ mod tests {
             description: "Run a shell command".to_string(),
             strict: true,
             defer_loading: None,
-            parameters: JsonSchema::Object {
-                properties: Default::default(),
-                required: None,
-                additional_properties: None,
-            },
+            parameters: JsonSchema::object(Default::default(), None, None),
             output_schema: None,
         })];
 
@@ -1144,11 +1140,7 @@ mod tests {
                 description: "Run shell".to_string(),
                 strict: true,
                 defer_loading: None,
-                parameters: JsonSchema::Object {
-                    properties: Default::default(),
-                    required: None,
-                    additional_properties: None,
-                },
+                parameters: JsonSchema::object(Default::default(), None, None),
                 output_schema: None,
             }),
             ToolSpec::Function(ResponsesApiTool {
@@ -1156,11 +1148,7 @@ mod tests {
                 description: "Read a file".to_string(),
                 strict: true,
                 defer_loading: None,
-                parameters: JsonSchema::Object {
-                    properties: Default::default(),
-                    required: None,
-                    additional_properties: None,
-                },
+                parameters: JsonSchema::object(Default::default(), None, None),
                 output_schema: None,
             }),
         ];
@@ -2241,11 +2229,7 @@ mod tests {
         let tools = vec![ToolSpec::ToolSearch {
             execution: "client".to_string(),
             description: "Search available tools".to_string(),
-            parameters: JsonSchema::Object {
-                properties: Default::default(),
-                required: None,
-                additional_properties: None,
-            },
+            parameters: JsonSchema::object(Default::default(), None, None),
         }];
 
         let anthropic_tools = tools_to_anthropic_format(&tools);
@@ -2778,11 +2762,7 @@ mod translator_tests {
                 description: "First tool".to_string(),
                 strict: true,
                 defer_loading: None,
-                parameters: JsonSchema::Object {
-                    properties: Default::default(),
-                    required: None,
-                    additional_properties: None,
-                },
+                parameters: JsonSchema::object(Default::default(), None, None),
                 output_schema: None,
             }),
             ToolSpec::Function(ResponsesApiTool {
@@ -2790,11 +2770,7 @@ mod translator_tests {
                 description: "Second tool".to_string(),
                 strict: true,
                 defer_loading: None,
-                parameters: JsonSchema::Object {
-                    properties: Default::default(),
-                    required: None,
-                    additional_properties: None,
-                },
+                parameters: JsonSchema::object(Default::default(), None, None),
                 output_schema: None,
             }),
         ];
@@ -3491,11 +3467,7 @@ mod variant_exhaustiveness_tests {
                 description: "test".to_string(),
                 strict: false,
                 defer_loading: None,
-                parameters: JsonSchema::Object {
-                    properties: Default::default(),
-                    required: None,
-                    additional_properties: None,
-                },
+                parameters: JsonSchema::object(Default::default(), None, None),
                 output_schema: None,
             }),
             ToolSpec::Freeform(FreeformTool {
@@ -3510,11 +3482,7 @@ mod variant_exhaustiveness_tests {
             ToolSpec::ToolSearch {
                 execution: "client".to_string(),
                 description: "search".to_string(),
-                parameters: JsonSchema::Object {
-                    properties: Default::default(),
-                    required: None,
-                    additional_properties: None,
-                },
+                parameters: JsonSchema::object(Default::default(), None, None),
             },
             ToolSpec::LocalShell {},
             ToolSpec::WebSearch {

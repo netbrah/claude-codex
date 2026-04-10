@@ -1,6 +1,7 @@
 use super::*;
 use chrono::TimeZone;
 use chrono::Utc;
+use codex_protocol::auth::KnownPlan;
 use pretty_assertions::assert_eq;
 use serde::Serialize;
 
@@ -104,6 +105,21 @@ fn id_token_info_parses_usage_based_business_plans() {
         Some("enterprise_cbp_usage_based")
     );
     assert_eq!(enterprise_cbp.is_workspace_account(), true);
+}
+
+#[test]
+fn id_token_info_parses_workspace_owner_flag() {
+    let fake_jwt = fake_jwt(serde_json::json!({
+        "email": "owner@example.com",
+        "https://api.openai.com/auth": {
+            "chatgpt_plan_type": "self_serve_business_usage_based",
+            "is_org_owner": true
+        }
+    }));
+
+    let info = parse_chatgpt_jwt_claims(&fake_jwt).expect("should parse");
+    assert_eq!(info.email.as_deref(), Some("owner@example.com"));
+    assert_eq!(info.is_org_owner, Some(true));
 }
 
 #[test]

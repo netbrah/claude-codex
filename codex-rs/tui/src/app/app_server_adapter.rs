@@ -176,6 +176,8 @@ impl App {
                         notification.auth_mode,
                         notification.plan_type,
                     ),
+                    notification.workspace_role,
+                    notification.is_workspace_owner,
                     notification.plan_type,
                     matches!(
                         notification.auth_mode,
@@ -391,10 +393,16 @@ fn server_notification_thread_target(
         ServerNotification::ThreadRealtimeOutputAudioDelta(notification) => {
             Some(notification.thread_id.as_str())
         }
+        ServerNotification::ThreadRealtimeSdp(notification) => {
+            Some(notification.thread_id.as_str())
+        }
         ServerNotification::ThreadRealtimeError(notification) => {
             Some(notification.thread_id.as_str())
         }
         ServerNotification::ThreadRealtimeClosed(notification) => {
+            Some(notification.thread_id.as_str())
+        }
+        ServerNotification::AddCreditsNudgeEmailCompleted(notification) => {
             Some(notification.thread_id.as_str())
         }
         ServerNotification::SkillsChanged(_)
@@ -501,6 +509,7 @@ fn server_notification_thread_events(
                 id: String::new(),
                 msg: EventMsg::TurnStarted(TurnStartedEvent {
                     turn_id: notification.turn.id,
+                    started_at: notification.turn.started_at,
                     model_context_window: None,
                     collaboration_mode_kind: ModeKind::default(),
                 }),
@@ -624,6 +633,17 @@ fn server_notification_thread_events(
                 }),
             }],
         )),
+        ServerNotification::ThreadRealtimeSdp(notification) => Some((
+            ThreadId::from_string(&notification.thread_id).ok()?,
+            vec![Event {
+                id: String::new(),
+                msg: EventMsg::RealtimeConversationSdp(
+                    codex_protocol::protocol::RealtimeConversationSdpEvent {
+                        sdp: notification.sdp,
+                    },
+                ),
+            }],
+        )),
         ServerNotification::ThreadRealtimeError(notification) => Some((
             ThreadId::from_string(&notification.thread_id).ok()?,
             vec![Event {
@@ -677,6 +697,7 @@ fn turn_snapshot_events(
         id: String::new(),
         msg: EventMsg::TurnStarted(TurnStartedEvent {
             turn_id: turn.id.clone(),
+            started_at: None,
             model_context_window: None,
             collaboration_mode_kind: ModeKind::default(),
         }),
@@ -742,6 +763,8 @@ fn append_terminal_turn_events(events: &mut Vec<Event>, turn: &Turn, include_fai
             msg: EventMsg::TurnComplete(TurnCompleteEvent {
                 turn_id: turn.id.clone(),
                 last_agent_message: None,
+                completed_at: turn.completed_at,
+                duration_ms: turn.duration_ms,
             }),
         }),
         TurnStatus::Interrupted => events.push(Event {
@@ -749,6 +772,8 @@ fn append_terminal_turn_events(events: &mut Vec<Event>, turn: &Turn, include_fai
             msg: EventMsg::TurnAborted(TurnAbortedEvent {
                 turn_id: Some(turn.id.clone()),
                 reason: TurnAbortReason::Interrupted,
+                completed_at: turn.completed_at,
+                duration_ms: turn.duration_ms,
             }),
         }),
         TurnStatus::Failed => {
@@ -769,6 +794,8 @@ fn append_terminal_turn_events(events: &mut Vec<Event>, turn: &Turn, include_fai
                 msg: EventMsg::TurnComplete(TurnCompleteEvent {
                     turn_id: turn.id.clone(),
                     last_agent_message: None,
+                    completed_at: turn.completed_at,
+                    duration_ms: turn.duration_ms,
                 }),
             });
         }
@@ -1006,10 +1033,14 @@ fn app_server_codex_error_info_to_core(
 
 #[cfg(test)]
 mod tests {
+    use super::ServerNotificationThreadTarget;
     use super::command_execution_started_event;
     use super::server_notification_thread_events;
+    use super::server_notification_thread_target;
     use super::thread_snapshot_events;
     use super::turn_snapshot_events;
+    use codex_app_server_protocol::AddCreditsNudgeEmailNotification;
+    use codex_app_server_protocol::AddCreditsNudgeEmailResult;
     use codex_app_server_protocol::AgentMessageDeltaNotification;
     use codex_app_server_protocol::CodexErrorInfo;
     use codex_app_server_protocol::CommandAction;
@@ -1039,6 +1070,19 @@ mod tests {
     use codex_protocol::protocol::TurnAbortedEvent;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
+
+    #[test]
+    fn add_credits_nudge_email_completion_targets_thread() {
+        let thread_id = ThreadId::new();
+        let target = server_notification_thread_target(
+            &ServerNotification::AddCreditsNudgeEmailCompleted(AddCreditsNudgeEmailNotification {
+                thread_id: thread_id.to_string(),
+                result: AddCreditsNudgeEmailResult::Sent,
+            }),
+        );
+
+        assert_eq!(target, ServerNotificationThreadTarget::Thread(thread_id));
+    }
 
     #[test]
     fn bridges_completed_agent_messages_from_server_notifications() {
@@ -1104,6 +1148,9 @@ mod tests {
                     items: Vec::new(),
                     status: TurnStatus::Completed,
                     error: None,
+                    started_at: None,
+                    completed_at: Some(0),
+                    duration_ms: None,
                 },
             }),
         )
@@ -1122,6 +1169,8 @@ mod tests {
         };
         assert_eq!(completed.turn_id, turn_id);
         assert_eq!(completed.last_agent_message, None);
+        assert_eq!(completed.completed_at, Some(0));
+        assert_eq!(completed.duration_ms, None);
     }
 
     #[test]
@@ -1285,6 +1334,9 @@ mod tests {
                 }],
                 status: TurnStatus::Completed,
                 error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
             }],
         };
 
@@ -1316,6 +1368,9 @@ mod tests {
                     items: Vec::new(),
                     status: TurnStatus::Interrupted,
                     error: None,
+                    started_at: None,
+                    completed_at: Some(0),
+                    duration_ms: None,
                 },
             }),
         )
@@ -1352,6 +1407,9 @@ mod tests {
                         codex_error_info: Some(CodexErrorInfo::Other),
                         additional_details: None,
                     }),
+                    started_at: None,
+                    completed_at: Some(0),
+                    duration_ms: None,
                 },
             }),
         )
@@ -1454,12 +1512,18 @@ mod tests {
                         ],
                         status: TurnStatus::Completed,
                         error: None,
+                        started_at: None,
+                        completed_at: None,
+                        duration_ms: None,
                     },
                     Turn {
                         id: "turn-interrupted".to_string(),
                         items: Vec::new(),
                         status: TurnStatus::Interrupted,
                         error: None,
+                        started_at: None,
+                        completed_at: None,
+                        duration_ms: None,
                     },
                     Turn {
                         id: "turn-failed".to_string(),
@@ -1470,6 +1534,9 @@ mod tests {
                             codex_error_info: Some(CodexErrorInfo::Other),
                             additional_details: None,
                         }),
+                        started_at: None,
+                        completed_at: None,
+                        duration_ms: None,
                     },
                 ],
             },
@@ -1482,7 +1549,10 @@ mod tests {
         assert!(matches!(events[2].msg, EventMsg::ItemCompleted(_)));
         assert!(matches!(events[3].msg, EventMsg::TurnComplete(_)));
         assert!(matches!(events[4].msg, EventMsg::TurnStarted(_)));
-        let EventMsg::TurnAborted(TurnAbortedEvent { turn_id, reason }) = &events[5].msg else {
+        let EventMsg::TurnAborted(TurnAbortedEvent {
+            turn_id, reason, ..
+        }) = &events[5].msg
+        else {
             panic!("expected interrupted turn replay");
         };
         assert_eq!(turn_id.as_deref(), Some("turn-interrupted"));
@@ -1529,6 +1599,9 @@ mod tests {
                 ],
                 status: TurnStatus::Completed,
                 error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
             },
             /*show_raw_agent_reasoning*/ false,
         );
@@ -1572,6 +1645,9 @@ mod tests {
                 }],
                 status: TurnStatus::Completed,
                 error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
             },
             /*show_raw_agent_reasoning*/ true,
         );

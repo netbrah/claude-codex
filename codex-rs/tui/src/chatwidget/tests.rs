@@ -39,6 +39,7 @@ pub(super) use codex_app_server_protocol::GuardianApprovalReviewAction as AppSer
 pub(super) use codex_app_server_protocol::GuardianApprovalReviewStatus;
 pub(super) use codex_app_server_protocol::GuardianCommandSource as AppServerGuardianCommandSource;
 pub(super) use codex_app_server_protocol::GuardianRiskLevel as AppServerGuardianRiskLevel;
+pub(super) use codex_app_server_protocol::GuardianUserAuthorization as AppServerGuardianUserAuthorization;
 pub(super) use codex_app_server_protocol::HookCompletedNotification as AppServerHookCompletedNotification;
 pub(super) use codex_app_server_protocol::HookEventName as AppServerHookEventName;
 pub(super) use codex_app_server_protocol::HookExecutionMode as AppServerHookExecutionMode;
@@ -93,12 +94,12 @@ pub(super) use codex_core::config_loader::ConfigLayerStack;
 pub(super) use codex_core::config_loader::ConfigRequirements;
 pub(super) use codex_core::config_loader::ConfigRequirementsToml;
 pub(super) use codex_core::config_loader::RequirementSource;
-pub(super) use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 pub(super) use codex_core::plugins::OPENAI_CURATED_MARKETPLACE_NAME;
 pub(super) use codex_core::skills::model::SkillMetadata;
 pub(super) use codex_features::FEATURES;
 pub(super) use codex_features::Feature;
 pub(super) use codex_git_utils::CommitLogEntry;
+pub(super) use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 pub(super) use codex_otel::RuntimeMetricsSummary;
 pub(super) use codex_otel::SessionTelemetry;
 pub(super) use codex_protocol::ThreadId;
@@ -117,13 +118,16 @@ pub(super) use codex_protocol::models::FileSystemPermissions;
 pub(super) use codex_protocol::models::MessagePhase;
 pub(super) use codex_protocol::models::NetworkPermissions;
 pub(super) use codex_protocol::models::PermissionProfile;
+pub(super) use codex_protocol::openai_models::ModelInfo;
 pub(super) use codex_protocol::openai_models::ModelPreset;
+pub(super) use codex_protocol::openai_models::ModelsResponse;
 pub(super) use codex_protocol::openai_models::ReasoningEffortPreset;
 pub(super) use codex_protocol::openai_models::default_input_modalities;
 pub(super) use codex_protocol::parse_command::ParsedCommand;
 pub(super) use codex_protocol::plan_tool::PlanItemArg;
 pub(super) use codex_protocol::plan_tool::StepStatus;
 pub(super) use codex_protocol::plan_tool::UpdatePlanArgs;
+pub(super) use codex_protocol::protocol::AddCreditsNudgeEmailStatus;
 pub(super) use codex_protocol::protocol::AgentMessageDeltaEvent;
 pub(super) use codex_protocol::protocol::AgentMessageEvent;
 pub(super) use codex_protocol::protocol::AgentReasoningDeltaEvent;
@@ -150,6 +154,7 @@ pub(super) use codex_protocol::protocol::GuardianAssessmentEvent;
 pub(super) use codex_protocol::protocol::GuardianAssessmentStatus;
 pub(super) use codex_protocol::protocol::GuardianCommandSource;
 pub(super) use codex_protocol::protocol::GuardianRiskLevel;
+pub(super) use codex_protocol::protocol::GuardianUserAuthorization;
 pub(super) use codex_protocol::protocol::ImageGenerationEndEvent;
 pub(super) use codex_protocol::protocol::ItemCompletedEvent;
 pub(super) use codex_protocol::protocol::McpStartupCompleteEvent;
@@ -197,6 +202,7 @@ pub(super) use crossterm::event::KeyCode;
 pub(super) use crossterm::event::KeyEvent;
 pub(super) use crossterm::event::KeyModifiers;
 pub(super) use insta::assert_snapshot;
+pub(super) use serde_json::json;
 #[cfg(target_os = "windows")]
 pub(super) use serial_test::serial;
 pub(super) use std::collections::BTreeMap;
@@ -210,7 +216,14 @@ pub(super) use tokio::sync::mpsc::unbounded_channel;
 pub(super) use toml::Value as TomlValue;
 
 pub(super) fn chatwidget_snapshot_dir() -> PathBuf {
-    codex_utils_cargo_bin::find_resource!("src/chatwidget/snapshots").expect("snapshot dir")
+    let snapshot_file = codex_utils_cargo_bin::find_resource!(
+        "src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_tall.snap"
+    )
+    .expect("snapshot file");
+    snapshot_file
+        .parent()
+        .unwrap_or_else(|| panic!("snapshot file has no parent: {}", snapshot_file.display()))
+        .to_path_buf()
 }
 
 macro_rules! assert_chatwidget_snapshot {
@@ -255,4 +268,5 @@ mod status_command_tests;
 
 pub(crate) use helpers::make_chatwidget_manual_with_sender;
 pub(crate) use helpers::set_chatgpt_auth;
+pub(crate) use helpers::set_fast_mode_test_catalog;
 pub(super) use helpers::*;
