@@ -1,0 +1,151 @@
+# XLI Release — build both platforms on GitHub Actions, publish to Artifactory.
+#
+# Trigger: push a tag like `rust-v0.2.0` or manual dispatch.
+# Builds macOS arm64 + Linux x86_64 gnu, uploads to Artifactory, publishes version.txt.
+#
+# Usage:
+#   git tag rust-v0.2.0 && git push origin rust-v0.2.0
+#   # or: Actions tab → xli-release → Run workflow
+name: xli-release
+
+on:
+  push:
+    tags:
+      - "rust-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 0.2.0) — reads from Cargo.toml if empty'
+        required: false
+        type: string
+
+concurrency:
+  group: xli-release
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  ARTIFACTORY_BASE: https://generic.repo.eng.netapp.com/user/palanisd
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine version
+        id: ver
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VER="${{ inputs.version }}"
+          elif [[ "${GITHUB_REF_NAME}" =~ ^rust-v(.+)$ ]]; then
+            VER="${BASH_REMATCH[1]}"
+          else
+            VER="$(grep '^version = ' codex-rs/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Building XLI v$VER"
+
+  build:
+    needs: version
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: codex-rs
+    env:
+      CARGO_PROFILE_RELEASE_LTO: thin
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            artifact: xli-darwin-arm64
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            artifact: xli-linux-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev
+
+      - name: Build
+        run: |
+          cargo build --target ${{ matrix.target }} --release --bin codex
+
+      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/codex ${{ matrix.artifact }}
+          chmod +x ${{ matrix.artifact }}
+          ls -lh ${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: codex-rs/${{ matrix.artifact }}
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish to Artifactory
+        env:
+          ARTIFACTORY_TOKEN: ${{ secrets.ARTIFACTORY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          upload() {
+            local file="$1" dest="$2"
+            echo "▸ Uploading $(basename "$file") → $dest"
+            curl -fsSL -X PUT 
+              -H "Authorization: Bearer $ARTIFACTORY_TOKEN" 
+              -T "$file" 
+              "$dest"
+            echo "  ✓ $(basename "$file")"
+          }
+
+          BASE="${ARTIFACTORY_BASE}/xli"
+
+          # Binaries — versioned + release alias
+          for artifact in xli-darwin-arm64 xli-linux-amd64; do
+            FILE="artifacts/${artifact}/${artifact}"
+            chmod +x "$FILE"
+            upload "$FILE" "${BASE}/${VERSION}/${artifact}"
+            upload "$FILE" "${BASE}/release/${artifact}"
+          done
+
+          # install.sh
+          upload "deploy/install.sh" "${BASE}/${VERSION}/install.sh"
+          upload "deploy/install.sh" "${BASE}/release/install.sh"
+
+          # version.txt
+          echo "$VERSION" > /tmp/version.txt
+          upload "/tmp/version.txt" "${BASE}/${VERSION}/version.txt"
+          upload "/tmp/version.txt" "${BASE}/release/version.txt"
+
+          echo ""
+          echo "╔════════════════════════════════════════╗"
+          echo "║   XLI v${VERSION} published            ║"
+          echo "╚════════════════════════════════════════╝"
+          echo ""
+          echo "Install: curl -fsSL ${BASE}/release/install.sh | bash"
