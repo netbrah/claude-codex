@@ -286,6 +286,7 @@ fn config_toml_deserializes_model_availability_nux() {
             terminal_title: None,
             theme: None,
             background: None,
+            foreground: None,
             model_availability_nux: ModelAvailabilityNuxConfig {
                 shown_count: HashMap::from([
                     ("gpt-bar".to_string(), 4),
@@ -984,6 +985,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
             terminal_title: None,
             theme: None,
             background: None,
+            foreground: None,
             model_availability_nux: ModelAvailabilityNuxConfig::default(),
         }
     );
@@ -4549,6 +4551,7 @@ fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             tui_terminal_title: None,
             tui_theme: None,
             tui_background: None,
+            tui_foreground: None,
             otel: OtelConfig::default(),
         },
         o3_profile_config
@@ -4699,6 +4702,7 @@ fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         tui_terminal_title: None,
         tui_theme: None,
             tui_background: None,
+            tui_foreground: None,
         otel: OtelConfig::default(),
     };
 
@@ -4847,6 +4851,7 @@ fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         tui_terminal_title: None,
         tui_theme: None,
             tui_background: None,
+            tui_foreground: None,
         otel: OtelConfig::default(),
     };
 
@@ -4981,6 +4986,7 @@ fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         tui_terminal_title: None,
         tui_theme: None,
             tui_background: None,
+            tui_foreground: None,
         otel: OtelConfig::default(),
     };
 

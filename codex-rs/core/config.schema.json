@@ -1853,6 +1853,11 @@
           "description": "Force a custom background color for the entire TUI.\n\nAccepts a CSS-style hex color (e.g. `\"#FFF0E0\"` for light peach). When set, the TUI paints every cell with this background and all adaptive styling (diff colors, message tints, shimmer) auto-adjusts as if the terminal had this background. The syntax theme (`/theme` picker) remains independent.",
           "type": "string"
         },
+        "foreground": {
+          "default": null,
+          "description": "Force a custom foreground (text) color for the entire TUI.\n\nAccepts a CSS-style hex color (e.g. `\"#1A1A2E\"` for near-black). When omitted but `background` is set, an appropriate contrasting foreground is auto-derived so text is always readable regardless of the user's terminal theme.",
+          "type": "string"
+        },
         "model_availability_nux": {
           "allOf": [
             {

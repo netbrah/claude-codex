@@ -517,6 +517,15 @@ pub struct Tui {
     #[serde(default)]
     pub background: Option<String>,
 
+    /// Force a custom foreground (text) color for the entire TUI.
+    ///
+    /// Accepts a CSS-style hex color (e.g. `"#1A1A2E"` for near-black).
+    /// When omitted but `background` is set, an appropriate contrasting
+    /// foreground is auto-derived so text is always readable regardless of
+    /// the user's terminal theme.
+    #[serde(default)]
+    pub foreground: Option<String>,
+
     /// Startup tooltip availability NUX state persisted by the TUI.
     #[serde(default)]
     pub model_availability_nux: ModelAvailabilityNuxConfig,
