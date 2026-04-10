@@ -1,0 +1,5 @@
+---
+source: tui/src/bottom_pane/footer.rs
+expression: terminal.backend()
+---
+"  ? for shortcuts                                        35.8K/128K (72% left)  "
