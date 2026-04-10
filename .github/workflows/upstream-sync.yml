@@ -1,13 +1,15 @@
-# Sync upstream openai/codex changes into dev
-#
-# Runs weekly and on manual trigger. Creates a PR if upstream has new commits.
-# The PR targets dev (default branch) so you can review before merging.
-name: Upstream Sync
+name: 'Sync Upstream (openai/codex)'
 
 on:
   schedule:
     - cron: '0 6 * * 1' # Weekly Monday 6am UTC
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream branch or tag to sync from (default: main)'
+        required: false
+        default: 'main'
+        type: string
 
 permissions:
   contents: write
@@ -15,67 +17,134 @@ permissions:
 
 jobs:
   sync:
+    name: 'Sync from upstream'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: 'Checkout repository'
         uses: actions/checkout@v4
         with:
           ref: dev
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure git and add upstream
+      - name: 'Configure git identity'
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add upstream https://github.com/openai/codex.git || true
-          git fetch upstream main --no-tags
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Check for new commits
+      - name: 'Add upstream remote'
+        run: |
+          git remote add upstream https://github.com/openai/codex.git || true
+          git fetch upstream '${{ inputs.upstream_ref || 'main' }}' --no-tags
+
+      - name: 'Check for new upstream commits'
         id: check
         run: |
-          BEHIND=$(git rev-list --count HEAD..upstream/main)
-          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
-          echo "Upstream is $BEHIND commits ahead"
+          UPSTREAM_REF='${{ inputs.upstream_ref || 'main' }}'
+          LOCAL_MERGE_BASE=$(git merge-base HEAD "upstream/${UPSTREAM_REF}" 2>/dev/null || echo "")
+          UPSTREAM_HEAD=$(git rev-parse "upstream/${UPSTREAM_REF}")
 
-      - name: Create sync branch and PR
-        if: steps.check.outputs.behind != '0'
+          if [ -z "$LOCAL_MERGE_BASE" ]; then
+            echo "No common ancestor found — first sync or diverged history."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "upstream_short=${UPSTREAM_HEAD:0:7}" >> "$GITHUB_OUTPUT"
+          elif [ "$LOCAL_MERGE_BASE" = "$UPSTREAM_HEAD" ]; then
+            echo "Already up to date with upstream/${UPSTREAM_REF}."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            COMMIT_COUNT=$(git rev-list --count "${LOCAL_MERGE_BASE}..${UPSTREAM_HEAD}")
+            echo "Found ${COMMIT_COUNT} new upstream commit(s)."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "commit_count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+            echo "upstream_short=${UPSTREAM_HEAD:0:7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 'Merge upstream changes'
+        if: steps.check.outputs.has_changes == 'true'
+        id: merge
+        run: |
+          UPSTREAM_REF='${{ inputs.upstream_ref || 'main' }}'
+          BRANCH="chore/sync-upstream-$(date +%Y%m%d)-${GITHUB_RUN_NUMBER}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          git checkout -b "${BRANCH}"
+
+          if git merge "upstream/${UPSTREAM_REF}" --no-edit; then
+            echo "merge_result=clean" >> "$GITHUB_OUTPUT"
+          else
+            echo "merge_result=conflict" >> "$GITHUB_OUTPUT"
+            echo ""
+            echo "============================================"
+            echo "  MERGE CONFLICTS DETECTED"
+            echo "============================================"
+            echo ""
+            echo "Conflicting files:"
+            git diff --name-only --diff-filter=U
+            echo ""
+            git add -A
+            git commit --no-verify -m "chore: merge upstream (${UPSTREAM_REF}, conflicts need resolution)"
+          fi
+
+      - name: 'Push sync branch'
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git push origin '${{ steps.merge.outputs.branch }}'
+
+      - name: 'Create pull request'
+        if: steps.check.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="chore/upstream-sync-$(date +%Y%m%d-%H%M)"
-          BEHIND=${{ steps.check.outputs.behind }}
-          git checkout -b "$BRANCH"
+          UPSTREAM_REF='${{ inputs.upstream_ref || 'main' }}'
+          COMMIT_COUNT='${{ steps.check.outputs.commit_count }}'
+          UPSTREAM_SHORT='${{ steps.check.outputs.upstream_short }}'
+          BRANCH='${{ steps.merge.outputs.branch }}'
+          MERGE_RESULT='${{ steps.merge.outputs.merge_result }}'
 
-          CONFLICTS=""
-          if ! git merge upstream/main --no-edit; then
-            # List conflicting files for the PR body
-            CONFLICT_FILES=$(git diff --name-only --diff-filter=U | head -20)
-            CONFLICTS="⚠️ **Merge conflicts detected** — resolve before merging.
+          CONFLICT_WARNING=""
+          if [ "${MERGE_RESULT}" = "conflict" ]; then
+            CONFLICT_FILES=$(cd /tmp && git -C "$GITHUB_WORKSPACE" diff --name-only --diff-filter=U 2>/dev/null || echo "(see branch)")
+            CONFLICT_WARNING="
+          > ⚠️ **Merge conflicts detected** — resolve conflict markers before merging.
 
           ```
-          $CONFLICT_FILES
+          ${CONFLICT_FILES}
           ```"
-            git add -A
-            git commit --no-verify -m "chore: merge upstream ($BEHIND commits, conflicts need resolution)"
           fi
 
-          git push origin "$BRANCH"
+          # Key upstream TUI changes for quick triage
+          TUI_CHANGES=$(git log --oneline HEAD..upstream/${UPSTREAM_REF} -- codex-rs/tui/ 2>/dev/null | head -10 | sed 's/^/- /')
 
-          BODY="Automated sync of **$BEHIND commits** from [openai/codex](https://github.com/openai/codex).
+          BODY="## Upstream Sync
 
-          Key upstream changes:"
-          BODY="$BODY
-          $(git log --oneline HEAD..upstream/main -- codex-rs/tui/ | head -10 | sed 's/^/- /')"
+          This PR merges the latest changes from [`openai/codex@${UPSTREAM_REF}`](https://github.com/openai/codex/tree/${UPSTREAM_REF}).
 
-          if [ -n "$CONFLICTS" ]; then
-            BODY="$BODY
+          - **Upstream ref**: `${UPSTREAM_REF}` (${UPSTREAM_SHORT})
+          - **New commits**: ${COMMIT_COUNT:-unknown}
+          - **Merge result**: ${MERGE_RESULT}
+          ${CONFLICT_WARNING}
 
-          $CONFLICTS"
-          fi
+          ### Key TUI changes
+          ${TUI_CHANGES:-_No TUI changes in this sync._}
+
+          ### Review checklist
+
+          - [ ] Verify XLI-specific files preserved (`deploy/`, `app_brand.rs`, `messages_wire.rs`, `ontap_harness.rs`)
+          - [ ] Run `cd codex-rs && cargo check --workspace` to validate build
+          - [ ] Check for breaking changes in upstream commits
+          - [ ] Resolve any `Cargo.lock` conflicts (regenerate with `cargo update --workspace`)"
+
+          PR_TITLE="chore: sync upstream openai/codex (${COMMIT_COUNT:-?} commits, ${UPSTREAM_SHORT})"
 
           gh pr create 
-            --title "chore: sync upstream openai/codex ($BEHIND commits)" 
-            --body "$BODY" 
             --base dev 
-            --head "$BRANCH"
+            --head "${BRANCH}" 
+            --title "${PR_TITLE}" 
+            --body "${BODY}" 
+            --label "chore" 
+            --label "upstream-sync" 2>/dev/null 
+          || gh pr create 
+            --base dev 
+            --head "${BRANCH}" 
+            --title "${PR_TITLE}" 
+            --body "${BODY}"
