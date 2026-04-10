@@ -955,7 +955,9 @@ async fn run_ratatui_app(
     let mut tui = Tui::new(terminal);
     let mut terminal_restore_guard = TerminalRestoreGuard::new();
 
-    #[cfg(not(debug_assertions))]
+    // XLI: Update prompt disabled — XLI manages its own distribution
+    // via deploy/install.sh and deploy/upload.sh, not GitHub releases.
+    #[cfg(any())]
     {
         use crate::update_prompt::UpdatePromptOutcome;
 
@@ -1303,6 +1305,15 @@ async fn run_ratatui_app(
     // terminal-queried background so all adaptive styling auto-adjusts.
     if let Some(bg) = config.tui_background {
         crate::terminal_palette::set_forced_background(Some(bg));
+
+        // Apply explicit foreground, or auto-derive a contrasting one so
+        // text is always readable regardless of the terminal's native fg.
+        let fg = config.tui_foreground.unwrap_or_else(|| {
+            crate::color::contrasting_fg(bg)
+        });
+        crate::terminal_palette::set_forced_foreground(Some(fg));
+    } else if let Some(fg) = config.tui_foreground {
+        crate::terminal_palette::set_forced_foreground(Some(fg));
     }
 
     set_default_client_residency_requirement(config.enforce_residency.value());
