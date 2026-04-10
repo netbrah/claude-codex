@@ -58,7 +58,11 @@ fi
 
 # ── Step 4: Build on remote ─────────────────────────────────────────────────
 info "Building on $REMOTE (release + fat LTO — may take 20-40 min on first run)..."
-ssh "$REMOTE" bash <<REMOTE_SCRIPT
+# Use SSH keepalive to prevent timeout during long builds.
+# The build runs under nohup so it survives brief disconnects.
+SSH_OPTS="-o ServerAliveInterval=60 -o ServerAliveCountMax=30"
+# shellcheck disable=SC2086
+ssh $SSH_OPTS "$REMOTE" bash <<REMOTE_SCRIPT
 export PATH=\$HOME/.cargo/bin:\$PATH
 export RUSTUP_TOOLCHAIN=1.94.1-x86_64-unknown-linux-gnu
 cd $REMOTE_DIR/codex-rs
