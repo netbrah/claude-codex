@@ -83,19 +83,20 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     cat > "$CONFIG_FILE" << 'CONFIG'
 # XLI Configuration — NetApp LLM Proxy
 #
-# DEFAULT: GPT 5.3 Codex on /responses wire
+# DEFAULT: Claude Opus 4.6 on /messages wire
 # Switch on the fly with profiles:
-#   xli -p claude       -> Claude Sonnet 4.6 on /messages wire
-#   xli -p claude-opus  -> Claude Opus 4.6 (128k output, adaptive thinking)
-#   xli                 -> default (GPT 5.3 Codex)
+#   xli -p sonnet       -> Claude Sonnet 4.6 (fast, low reasoning)
+#   xli -p haiku        -> Claude Haiku 4.5 (fastest, minimal reasoning)
+#   xli -p gpt          -> GPT 5.3 Codex on /responses wire
+#   xli                 -> default (Claude Opus 4.6)
 #
 # Or override inline:
 #   xli -c model=claude-sonnet-4.6
-#   xli -c model_provider=llm_proxy_messages
+#   xli -c model=gpt-5.3-codex
 
-model = "gpt-5.3-codex"
-model_provider = "llm_proxy_responses"
-model_reasoning_effort = "high"
+model = "claude-opus-4.6"
+model_provider = "llm_proxy_messages"
+model_reasoning_effort = "medium"
 approval_policy = "unless-allow-listed"
 
 # ── Providers ────────────────────────────────────────────────────
@@ -103,6 +104,13 @@ approval_policy = "unless-allow-listed"
 #
 # Set your key in ~/.bashrc or ~/.zshrc:
 #   export CODEX_LLM_PROXY_KEY="<from NetApp vault>"
+
+[model_providers.llm_proxy_messages]
+name = "LLM Proxy (Messages Wire)"
+base_url = "https://llm-proxy-api.ai.eng.netapp.com/v1"
+env_key = "CODEX_LLM_PROXY_KEY"
+wire_api = "messages"
+requires_openai_auth = false
 
 [model_providers.llm_proxy_responses]
 name = "LLM Proxy (Responses Wire)"
@@ -112,26 +120,14 @@ wire_api = "responses"
 requires_openai_auth = false
 http_headers = {"x-litellm-tags" = "East US 2"}
 
-[model_providers.llm_proxy_messages]
-name = "LLM Proxy (Messages Wire)"
-base_url = "https://llm-proxy-api.ai.eng.netapp.com/v1"
-env_key = "CODEX_LLM_PROXY_KEY"
-wire_api = "messages"
-requires_openai_auth = false
-
 # ── Profiles (switch with -p) ───────────────────────────────────
 
-[profiles.claude]
+[profiles.sonnet]
 model = "claude-sonnet-4.6"
 model_provider = "llm_proxy_messages"
 model_reasoning_effort = "low"
 
-[profiles.claude-opus]
-model = "claude-opus-4.6"
-model_provider = "llm_proxy_messages"
-model_reasoning_effort = "medium"
-
-[profiles.claude-haiku]
+[profiles.haiku]
 model = "claude-haiku-4.5"
 model_provider = "llm_proxy_messages"
 model_reasoning_effort = "low"
@@ -140,11 +136,6 @@ model_reasoning_effort = "low"
 model = "gpt-5.3-codex"
 model_provider = "llm_proxy_responses"
 model_reasoning_effort = "high"
-
-# ── TUI ─────────────────────────────────────────────────────────
-
-[tui]
-# background = "#FFF0E0"  # Uncomment for light peach background
 CONFIG
 
     chmod 0600 "$CONFIG_FILE"
@@ -185,6 +176,6 @@ fi
 
 printf "  ${_D}Config:    ${CONFIG_FILE}${_R}\n" >&2
 printf "  ${_D}Binary:    ${INSTALL_DIR}/xli${_R}\n\n" >&2
-printf "  ${_D}Profiles:  xli               GPT 5.3 (default)${_R}\n" >&2
-printf "  ${_D}           xli -p claude      Claude Sonnet 4.6${_R}\n" >&2
-printf "  ${_D}           xli -p claude-opus  Claude Opus 4.6${_R}\n\n" >&2
+printf "  ${_D}Profiles:  xli               Claude Opus 4.6 (default)${_R}\n" >&2
+printf "  ${_D}           xli -p sonnet      Claude Sonnet 4.6${_R}\n" >&2
+printf "  ${_D}           xli -p gpt         GPT 5.3 Codex${_R}\n\n" >&2

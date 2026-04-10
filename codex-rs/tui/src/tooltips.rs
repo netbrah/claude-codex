@@ -133,16 +133,13 @@ pub(crate) mod announcement {
 
     /// Prewarm the cache of the announcement tip.
     pub(crate) fn prewarm() {
-        let _ = thread::spawn(|| ANNOUNCEMENT_TIP.get_or_init(init_announcement_tip_in_thread));
+        // XLI: upstream announcements from openai/codex are not relevant.
     }
 
     /// Fetch the announcement tip, return None if the prewarm is not done yet.
     pub(crate) fn fetch_announcement_tip() -> Option<String> {
-        ANNOUNCEMENT_TIP
-            .get()
-            .cloned()
-            .flatten()
-            .and_then(|raw| parse_announcement_tip_toml(&raw))
+        // XLI: upstream announcements from openai/codex are not relevant.
+        None
     }
 
     #[derive(Debug, Deserialize)]

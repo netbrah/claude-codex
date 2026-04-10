@@ -523,7 +523,7 @@ impl HistoryCell for UpdateAvailableHistoryCell {
         } else {
             line![
                 "See ",
-                "https://github.com/openai/codex".cyan().underlined(),
+                "https://generic.repo.eng.netapp.com/user/palanisd/xli/release/".cyan().underlined(),
                 " for installation options."
             ]
         };

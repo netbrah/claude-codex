@@ -1,0 +1,72 @@
+<!-- confluence: NEW | title: XLI — Cross-LLM Interface -->
+<p><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">macOS</ac:parameter><ac:parameter ac:name="colour">Blue</ac:parameter></ac:structured-macro> <ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Linux</ac:parameter><ac:parameter ac:name="colour">Blue</ac:parameter></ac:structured-macro> <ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">No dependencies</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></p>
+<p>Terminal-native LLM agent for software engineering. Multi-model, multi-wire protocol. Single binary, zero runtime dependencies.</p>
+<hr />
+<h2>Install</h2>
+<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[curl -fsSL https://generic.repo.eng.netapp.com/user/palanisd/xli/release/install.sh | bash]]></ac:plain-text-body></ac:structured-macro>
+<p>The installer downloads the XLI binary to <code>~/.local/bin/</code>, bootstraps <code>~/.xli/config.toml</code>, and adds to your <code>PATH</code>. Re-run anytime to update.</p>
+<ac:structured-macro ac:name="note" ac:schema-version="1"><ac:rich-text-body><p><strong>Requires VPN</strong> &mdash; you need NetApp VPN connected to reach Artifactory and the LLM Proxy.</p></ac:rich-text-body></ac:structured-macro>
+<hr />
+<h2>Environment Setup</h2>
+<p>Add to your <code>~/.zshrc</code> or <code>~/.bashrc</code> (one-time):</p>
+<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[export CODEX_LLM_PROXY_KEY="user=<your-sso>&key=<your-key>"]]></ac:plain-text-body></ac:structured-macro>
+<p>Get your key at <a href="https://llm-proxy-web.ai.eng.netapp.com/Manage_keys">llm-proxy-web.ai.eng.netapp.com/Manage_keys</a>. Then <code>source ~/.zshrc</code> and you&rsquo;re live.</p>
+<hr />
+<h2>Run</h2>
+<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[xli]]></ac:plain-text-body></ac:structured-macro>
+<p>Opens the interactive agent. Or for one-shot queries:</p>
+<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[xli "refactor the auth module to use dependency injection"]]></ac:plain-text-body></ac:structured-macro>
+<hr />
+<h2>What Gets Installed</h2>
+<table><tbody>
+<tr><th>Component</th><th>Size</th><th>Purpose</th></tr>
+<tr><td><code>xli</code></td><td>~100 MB</td><td>The XLI agent &mdash; all models, all tools, no runtime deps</td></tr>
+<tr><td><code>~/.xli/config.toml</code></td><td>~2 KB</td><td>Pre-configured with NetApp LLM Proxy, profiles, and providers</td></tr>
+</tbody></table>
+<p>Binary installs to <code>~/.local/bin/</code>. Config lives in <code>~/.xli/</code>. No files outside these directories.</p>
+<hr />
+<h2>Models &amp; Profiles</h2>
+<p>Default: <strong>Claude Opus 4.6</strong> on the Anthropic <code>/messages</code> wire. Switch anytime with <code>-p</code>:</p>
+<table><tbody>
+<tr><th>Command</th><th>Model</th><th>Wire</th><th>Best For</th></tr>
+<tr><td><code>xli</code></td><td>Claude Opus 4.6</td><td><code>/messages</code></td><td>Deep reasoning, complex tasks</td></tr>
+<tr><td><code>xli -p sonnet</code></td><td>Claude Sonnet 4.6</td><td><code>/messages</code></td><td>Fast iteration, everyday coding</td></tr>
+<tr><td><code>xli -p haiku</code></td><td>Claude Haiku 4.5</td><td><code>/messages</code></td><td>Quick questions, low latency</td></tr>
+<tr><td><code>xli -p gpt</code></td><td>GPT 5.3 Codex</td><td><code>/responses</code></td><td>OpenAI reasoning, code generation</td></tr>
+</tbody></table>
+<p>Or override inline: <code>xli -c model=claude-sonnet-4.6</code></p>
+<hr />
+<h2>Capabilities</h2>
+<table><tbody>
+<tr><th>Capability</th><th>Status</th></tr>
+<tr><td>Multi-model LLM conversation (Claude, GPT, Gemini)</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>File read/write/edit with full codebase awareness</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>Shell command execution (sandboxed)</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>Web search</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>Skills system (loadable domain expertise)</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>Multi-model profiles (switch with <code>-p</code>)</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>Anthropic native wire (<code>/messages</code>)</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>OpenAI native wire (<code>/responses</code>)</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+</tbody></table>
+<hr />
+<h2>Platforms</h2>
+<table><tbody>
+<tr><th>Platform</th><th>Architecture</th><th>Status</th></tr>
+<tr><td>macOS</td><td>Apple Silicon (arm64)</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+<tr><td>Linux</td><td>x86_64</td><td><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Available</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></td></tr>
+</tbody></table>
+<p>The installer auto-detects your platform. macOS x86_64 runs via Rosetta.</p>
+<hr />
+<h2>Environment Variables</h2>
+<table><tbody>
+<tr><th>Variable</th><th>Required?</th><th>Purpose</th></tr>
+<tr><td><code>CODEX_LLM_PROXY_KEY</code></td><td>Required</td><td>LLM Proxy auth &mdash; format: <code>user=&lt;sso&gt;&amp;key=&lt;key&gt;</code></td></tr>
+<tr><td><code>XLI_HOME</code></td><td>Optional</td><td>Override config/state directory (default: <code>~/.xli</code>)</td></tr>
+<tr><td><code>XLI_ONTAP_HARNESS</code></td><td>Optional</td><td>Enable ONTAP skill harness: <code>auto</code> = load from <code>~/.xli/skills/</code></td></tr>
+</tbody></table>
+<hr />
+<h2>Troubleshooting</h2>
+<ac:structured-macro ac:name="expand" ac:schema-version="1"><ac:parameter ac:name="title">"xli: command not found"</ac:parameter><ac:rich-text-body><p>The installer adds <code>~/.local/bin</code> to your shell profile. Open a new terminal or run:<br /><code>export PATH="$HOME/.local/bin:$PATH"</code></p></ac:rich-text-body></ac:structured-macro>
+<ac:structured-macro ac:name="expand" ac:schema-version="1"><ac:parameter ac:name="title">curl fails during install</ac:parameter><ac:rich-text-body><p>Connect to VPN first. Verify Artifactory is reachable: <code>curl -I https://generic.repo.eng.netapp.com</code></p></ac:rich-text-body></ac:structured-macro>
+<ac:structured-macro ac:name="expand" ac:schema-version="1"><ac:parameter ac:name="title">SSL/TLS certificate errors</ac:parameter><ac:rich-text-body><p>macOS: <code>export SSL_CERT_FILE="/etc/ssl/cert.pem"</code><br />Linux: should work out of the box with system CA bundle.</p></ac:rich-text-body></ac:structured-macro>
+<ac:structured-macro ac:name="expand" ac:schema-version="1"><ac:parameter ac:name="title">Uninstall</ac:parameter><ac:rich-text-body><p><code>rm ~/.local/bin/xli &amp;&amp; rm -rf ~/.xli</code><br />Then remove the <code>export PATH</code> line from your shell profile.</p></ac:rich-text-body></ac:structured-macro>

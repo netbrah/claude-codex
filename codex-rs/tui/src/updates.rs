@@ -15,6 +15,11 @@ use std::path::PathBuf;
 use crate::version::CODEX_CLI_VERSION;
 
 pub fn get_upgrade_version(config: &Config) -> Option<String> {
+    // XLI distributes through NetApp Artifactory, not GitHub releases.
+    // The upstream update checker points at openai/codex which is wrong.
+    return None;
+
+    #[allow(unreachable_code)]
     if !config.check_for_update_on_startup {
         return None;
     }
