@@ -19,7 +19,8 @@ SKILLS="$ROOT/skills"
 NPM="$ROOT/npm"
 SAMPLES="$CODEX/skills/src/assets/samples"
 
-VERSION="${VERSION:-0.1.0}"
+# Single source of truth: codex-rs/Cargo.toml workspace version
+VERSION="${VERSION:-$(grep '^version = ' codex-rs/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')}"
 MAC_TRIPLE="aarch64-apple-darwin"
 LINUX_TRIPLE="x86_64-unknown-linux-gnu"
 

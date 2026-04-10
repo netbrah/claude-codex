@@ -32,8 +32,8 @@ ARTIFACTORY_BASE="https://generic.repo.eng.netapp.com/user/${ARTIFACTORY_USER}"
 JFROG_REPO="seclab-generic-local"
 RELEASE_TAG="${RELEASE_TAG:-release}"
 
-# Read version from deploy/npm/package.json
-VERSION="${VERSION:-$(node -p "require('./deploy/npm/package.json').version" 2>/dev/null || echo "0.1.0")}"
+# Single source of truth: codex-rs/Cargo.toml workspace version
+VERSION="${VERSION:-$(grep '^version = ' codex-rs/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')}"
 
 # ── Colors ────────────────────────────────────────────────────────────
 _R=$'\033[0m'; _B=$'\033[1m'
