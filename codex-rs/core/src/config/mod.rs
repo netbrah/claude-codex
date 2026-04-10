@@ -356,6 +356,9 @@ pub struct Config {
     /// Syntax highlighting theme override (kebab-case name).
     pub tui_theme: Option<String>,
 
+    /// Forced TUI background color as an RGB tuple parsed from hex.
+    pub tui_background: Option<(u8, u8, u8)>,
+
     /// The absolute directory that should be treated as the current working
     /// directory for the session. All relative paths inside the business-logic
     /// layer are resolved against this path.
@@ -2823,6 +2826,9 @@ impl Config {
             tui_status_line: cfg.tui.as_ref().and_then(|t| t.status_line.clone()),
             tui_terminal_title: cfg.tui.as_ref().and_then(|t| t.terminal_title.clone()),
             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
+            tui_background: cfg.tui.as_ref().and_then(|t| {
+                t.background.as_deref().and_then(parse_hex_color)
+            }),
             otel: {
                 let t: OtelConfigToml = cfg.otel.unwrap_or_default();
                 let log_user_prompt = t.log_user_prompt.unwrap_or(false);
@@ -2987,6 +2993,18 @@ fn resolve_os_username() -> Option<String> {
         .or_else(|_| std::env::var("USERNAME"))
         .ok()
         .filter(|s| !s.is_empty())
+}
+
+/// Parse a CSS-style hex color string (`#RRGGBB` or `RRGGBB`) into an RGB tuple.
+fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    if hex.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some((r, g, b))
 }
 
 #[cfg(test)]

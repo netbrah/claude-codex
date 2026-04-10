@@ -1299,6 +1299,12 @@ async fn run_ratatui_app(
         config.startup_warnings.push(w);
     }
 
+    // Apply forced background color from config. This overrides the
+    // terminal-queried background so all adaptive styling auto-adjusts.
+    if let Some(bg) = config.tui_background {
+        crate::terminal_palette::set_forced_background(Some(bg));
+    }
+
     set_default_client_residency_requirement(config.enforce_residency.value());
     let active_profile = config.active_profile.clone();
     let should_show_trust_screen = should_show_trust_screen(&config);

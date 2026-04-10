@@ -507,6 +507,16 @@ pub struct Tui {
     #[serde(default)]
     pub theme: Option<String>,
 
+    /// Force a custom background color for the entire TUI.
+    ///
+    /// Accepts a CSS-style hex color (e.g. `"#FFF0E0"` for light peach).
+    /// When set, the TUI paints every cell with this background and all
+    /// adaptive styling (diff colors, message tints, shimmer) auto-adjusts
+    /// as if the terminal had this background.
+    /// The syntax theme (`/theme` picker) remains independent.
+    #[serde(default)]
+    pub background: Option<String>,
+
     /// Startup tooltip availability NUX state persisted by the TUI.
     #[serde(default)]
     pub model_availability_nux: ModelAvailabilityNuxConfig,

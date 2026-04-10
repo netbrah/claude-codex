@@ -5,6 +5,32 @@ use std::sync::atomic::Ordering;
 
 static DEFAULT_PALETTE_VERSION: AtomicU64 = AtomicU64::new(0);
 
+use std::sync::Mutex;
+use std::sync::OnceLock;
+
+/// Config-forced background color override. When set, `default_bg()` returns
+/// this value instead of the terminal-queried background, causing all adaptive
+/// styling (diff colors, message tints, shimmer) to key off the forced color.
+static FORCED_BG: OnceLock<Mutex<Option<(u8, u8, u8)>>> = OnceLock::new();
+
+fn forced_bg_cell() -> &'static Mutex<Option<(u8, u8, u8)>> {
+    FORCED_BG.get_or_init(|| Mutex::new(None))
+}
+
+/// Set a forced background color from config. Call once at startup.
+/// Pass `None` to clear (revert to terminal-queried background).
+pub fn set_forced_background(rgb: Option<(u8, u8, u8)>) {
+    if let Ok(mut guard) = forced_bg_cell().lock() {
+        *guard = rgb;
+    }
+    bump_palette_version();
+}
+
+/// Returns the forced background if set, otherwise `None`.
+pub fn forced_background() -> Option<(u8, u8, u8)> {
+    forced_bg_cell().lock().ok().and_then(|g| *g)
+}
+
 fn bump_palette_version() {
     DEFAULT_PALETTE_VERSION.fetch_add(1, Ordering::Relaxed);
 }
@@ -74,6 +100,10 @@ pub fn default_fg() -> Option<(u8, u8, u8)> {
 }
 
 pub fn default_bg() -> Option<(u8, u8, u8)> {
+    // If a background color was forced via config, use it unconditionally.
+    if let Some(rgb) = forced_background() {
+        return Some(rgb);
+    }
     default_colors().map(|c| c.bg)
 }
 
