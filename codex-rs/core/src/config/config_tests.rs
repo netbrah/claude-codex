@@ -7074,21 +7074,21 @@ top_p = 0.95
     let cold = &parsed.profiles["cold"];
     assert_eq!(
         cold.sampling,
-        Some(SamplingParams {
+        SamplingParams {
             temperature: Some(0.0),
             top_p: None,
             top_k: None,
-        })
+        }
     );
 
     let warm = &parsed.profiles["warm"];
     assert_eq!(
         warm.sampling,
-        Some(SamplingParams {
+        SamplingParams {
             temperature: Some(0.8),
             top_p: Some(0.95),
             top_k: None,
-        })
+        }
     );
 }
 

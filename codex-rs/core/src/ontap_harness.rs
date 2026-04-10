@@ -9,9 +9,6 @@
 //!   - path string: assemble from that directory
 //!   - `"0"` / `"false"` / unset: disabled (default)
 
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use crate::config::find_codex_home;
@@ -101,56 +98,6 @@ Additional skills (shipstopper, ontap-aar, ontap-bda, review, etc.)
 are available on-demand via the skill tool.
 ";
 
-// ── Reference loading ──────────────────────────────────────────────────
-
-struct Ref {
-    name: String,
-    content: String,
-}
-
-/// Read `{skill_dir}/references/*.md`, sorted by name.
-async fn load_refs(skill_dir: &Path) -> Vec<Ref> {
-    let refs_dir = skill_dir.join("references");
-    let mut entries = match tokio::fs::read_dir(&refs_dir).await {
-        Ok(rd) => rd,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut results = Vec::new();
-    loop {
-        let entry = match entries.next_entry().await {
-            Ok(Some(e)) => e,
-            _ => break,
-        };
-        let path = entry.path();
-        let ext = path.extension().and_then(|e| e.to_str());
-        if ext != Some("md") {
-            continue;
-        }
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
-        if let Ok(content) = tokio::fs::read_to_string(&path).await {
-            results.push(Ref {
-                name,
-                content: content.trim().to_string(),
-            });
-        }
-    }
-    results.sort_by(|a, b| a.name.cmp(&b.name));
-    results
-}
-
-// ── Content hashing (deduplication) ────────────────────────────────────
-
-fn content_hash(s: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
-}
-
 // ── Skills root resolution ─────────────────────────────────────────────
 
 /// Determine where skills live on disk.
@@ -206,7 +153,7 @@ pub(crate) async fn assemble_harness(
 
     let mut toc = Vec::new();
     let mut parts = Vec::new();
-    let mut seen_hashes = HashSet::new();
+
     let mut skill_count = 0u32;
     let mut total_bytes = 0usize;
 
@@ -226,36 +173,16 @@ pub(crate) async fn assemble_harness(
             }
         };
 
-        let refs = load_refs(&skill_dir).await;
-        let deduped: Vec<&Ref> = refs
-            .iter()
-            .filter(|r| {
-                let h = content_hash(&r.content);
-                seen_hashes.insert(h)
-            })
-            .collect();
-
         // TOC entry.
         toc.push(format!("- {name}"));
-        for r in &deduped {
-            toc.push(format!("  - ref: {}", r.name));
-        }
 
-        // Skill body.
+        // Skill body (SKILL.md only — references are available on-demand
+        // via the skill tool at runtime, not injected into the system prompt).
         let trimmed = content.trim();
         parts.push(format!(
             "<skill name=\"{name}\">\n{trimmed}\n</skill>\n"
         ));
         total_bytes += trimmed.len();
-
-        // Reference bodies.
-        for r in &deduped {
-            parts.push(format!(
-                "<reference skill=\"{name}\" name=\"{}\">\n{}\n</reference>\n",
-                r.name, r.content,
-            ));
-            total_bytes += r.content.len();
-        }
 
         skill_count += 1;
     }

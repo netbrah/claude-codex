@@ -104,6 +104,8 @@ async fn responses_stream_includes_subagent_header_on_review() {
         provider.clone(),
         session_source,
         config.model_verbosity,
+        /*tool_choice*/ None,
+        /*messages_metadata_user_id*/ None,
         /*enable_request_compression*/ false,
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
@@ -129,6 +131,7 @@ async fn responses_stream_includes_subagent_header_on_review() {
             effort,
             summary.unwrap_or(model_info.default_reasoning_summary),
             /*service_tier*/ None,
+            Default::default(),
             /*turn_metadata_header*/ None,
         )
         .await
@@ -229,6 +232,8 @@ async fn responses_stream_includes_subagent_header_on_other() {
         provider.clone(),
         session_source,
         config.model_verbosity,
+        /*tool_choice*/ None,
+        /*messages_metadata_user_id*/ None,
         /*enable_request_compression*/ false,
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
@@ -254,6 +259,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
             effort,
             summary.unwrap_or(model_info.default_reasoning_summary),
             /*service_tier*/ None,
+            Default::default(),
             /*turn_metadata_header*/ None,
         )
         .await
@@ -343,6 +349,8 @@ async fn responses_respects_model_info_overrides_from_config() {
         provider.clone(),
         session_source,
         config.model_verbosity,
+        /*tool_choice*/ None,
+        /*messages_metadata_user_id*/ None,
         /*enable_request_compression*/ false,
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
@@ -368,6 +376,7 @@ async fn responses_respects_model_info_overrides_from_config() {
             effort,
             summary.unwrap_or(model_info.default_reasoning_summary),
             /*service_tier*/ None,
+            Default::default(),
             /*turn_metadata_header*/ None,
         )
         .await

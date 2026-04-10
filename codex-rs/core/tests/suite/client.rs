@@ -884,6 +884,8 @@ async fn send_provider_auth_request(server: &MockServer, auth: ModelProviderAuth
         provider,
         SessionSource::Exec,
         config.model_verbosity,
+        /*tool_choice*/ None,
+        /*messages_metadata_user_id*/ None,
         /*enable_request_compression*/ false,
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
@@ -908,6 +910,7 @@ async fn send_provider_auth_request(server: &MockServer, auth: ModelProviderAuth
             effort,
             summary.unwrap_or(ReasoningSummary::Auto),
             /*service_tier*/ None,
+            Default::default(),
             /*turn_metadata_header*/ None,
         )
         .await
@@ -2181,6 +2184,8 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         provider.clone(),
         SessionSource::Exec,
         config.model_verbosity,
+        /*tool_choice*/ None,
+        /*messages_metadata_user_id*/ None,
         /*enable_request_compression*/ false,
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
@@ -2197,6 +2202,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
             text: "content".into(),
         }]),
         encrypted_content: None,
+        raw_wire_block: None,
     });
     prompt.input.push(ResponseItem::Message {
         id: Some("message-id".into()),
@@ -2259,6 +2265,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
             effort,
             summary.unwrap_or(ReasoningSummary::Auto),
             /*service_tier*/ None,
+            Default::default(),
             /*turn_metadata_header*/ None,
         )
         .await

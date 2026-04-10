@@ -6,7 +6,7 @@
 //!
 //! S-020 Sub-A — these are P0 compile-guard smoke tests.
 
-use crate::model_provider_info::WireApi;
+use codex_model_provider_info::WireApi;
 use crate::messages_wire::{conversation_to_anthropic_messages, extract_developer_blocks, tools_to_anthropic_format};
 use codex_api::{MessagesApiMetadata, MessagesApiRequest};
 

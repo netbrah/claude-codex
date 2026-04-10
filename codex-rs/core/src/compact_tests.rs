@@ -572,204 +572,12 @@ fn insert_initial_context_before_last_real_user_or_summary_keeps_compaction_last
     assert_eq!(refreshed, expected);
 }
 
-#[test]
-fn find_compact_split_point_empty_history() {
-    let items: Vec<ResponseItem> = vec![];
-    assert_eq!(find_compact_split_point(&items), 0);
-}
-
-#[test]
-fn find_compact_split_point_splits_at_user_boundary() {
-    let items = vec![
-        ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: "a".repeat(700),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::Message {
-            id: None,
-            role: "assistant".to_string(),
-            content: vec![ContentItem::OutputText {
-                text: "b".repeat(700),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: "c".repeat(300),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::Message {
-            id: None,
-            role: "assistant".to_string(),
-            content: vec![ContentItem::OutputText {
-                text: "d".repeat(300),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-    ];
-
-    let split = find_compact_split_point(&items);
-    assert!(
-        split >= 1 && split <= 3,
-        "split should land between first and third items, got {split}"
-    );
-    if split < items.len() {
-        assert_eq!(
-            match &items[split] {
-                ResponseItem::Message { role, .. } => role.as_str(),
-                _ => "",
-            },
-            "user",
-            "split must land on a user message boundary"
-        );
-    }
-}
-
-#[test]
-fn find_compact_split_point_preserves_roughly_30_percent() {
-    let items: Vec<ResponseItem> = (0..10)
-        .map(|i| ResponseItem::Message {
-            id: None,
-            role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
-            content: vec![ContentItem::InputText {
-                text: format!("message {i} content padding"),
-            }],
-            end_turn: None,
-            phase: None,
-        })
-        .collect();
-
-    let split = find_compact_split_point(&items);
-    let preserved_count = items.len() - split;
-    assert!(
-        preserved_count >= 2 && preserved_count <= 5,
-        "should preserve ~30% of items, preserved {preserved_count}/{}",
-        items.len()
-    );
-}
-
-#[test]
-fn find_compact_split_point_skips_summary_messages() {
-    let items = vec![
-        ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: "a".repeat(500),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: format!("{SUMMARY_PREFIX}\nold summary"),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: "real user message".to_string(),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-    ];
-
-    let split = find_compact_split_point(&items);
-    if split < items.len() {
-        let text = match &items[split] {
-            ResponseItem::Message { content, .. } => {
-                content_items_to_text(content).unwrap_or_default()
-            }
-            _ => String::new(),
-        };
-        assert!(
-            !is_summary_message(&text),
-            "split should not land on a summary message"
-        );
-    }
-}
-
-#[test]
-fn find_compact_split_point_returns_len_when_no_user_boundary_in_tail() {
-    let items = vec![
-        ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: "a".repeat(200),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::Message {
-            id: None,
-            role: "assistant".to_string(),
-            content: vec![ContentItem::OutputText {
-                text: "b".repeat(500),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::FunctionCall {
-            id: None,
-            name: "shell".to_string(),
-            namespace: None,
-            arguments: r#"{"cmd":"ls"}"#.to_string(),
-            call_id: "t1".to_string(),
-        },
-    ];
-
-    let split = find_compact_split_point(&items);
-    assert_eq!(
-        split,
-        items.len(),
-        "when no user message in the 30% tail, split returns items.len() (empty preserved portion)"
-    );
-}
-
-#[test]
-fn split_not_applied_below_min_items_threshold() {
-    let items: Vec<ResponseItem> = (0..5)
-        .map(|i| ResponseItem::Message {
-            id: None,
-            role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
-            content: vec![ContentItem::InputText {
-                text: format!("msg {i}"),
-            }],
-            end_turn: None,
-            phase: None,
-        })
-        .collect();
-
-    assert!(
-        items.len() < super::MIN_ITEMS_FOR_SPLIT,
-        "test items should be below threshold"
-    );
-}
-
 // ── T-9: Compaction path tests (Messages wire stays on /messages) ────
 
 #[test]
 fn compaction_uses_inline_for_messages_wire_provider() {
-    use crate::model_provider_info::WireApi;
-    let provider = crate::model_provider_info::create_oss_provider_with_base_url(
+    use codex_model_provider_info::WireApi;
+    let provider = codex_model_provider_info::create_oss_provider_with_base_url(
         "https://proxy.example.com/v1",
         WireApi::Messages,
     );
@@ -782,8 +590,8 @@ fn compaction_uses_inline_for_messages_wire_provider() {
 
 #[test]
 fn compaction_uses_remote_for_openai_responses_provider() {
-    use crate::model_provider_info::WireApi;
-    let provider = crate::model_provider_info::create_oss_provider_with_base_url(
+    use codex_model_provider_info::WireApi;
+    let provider = codex_model_provider_info::create_oss_provider_with_base_url(
         "https://api.openai.com/v1",
         WireApi::Responses,
     );

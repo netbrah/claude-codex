@@ -212,7 +212,7 @@ async fn skills_appear_in_kill_chain_order() {
 
 #[tokio::test]
 #[serial]
-async fn references_are_included_with_xml_tags() {
+async fn references_are_not_injected_into_harness() {
     let _guard = EnvVarGuard::set("XLI_ONTAP_HARNESS", OsStr::new("auto"));
     let tmp = TempDir::new().unwrap();
     make_ontap_workspace(&tmp);
@@ -230,45 +230,13 @@ async fn references_are_included_with_xml_tags() {
     let result = assemble_harness(tmp.path(), Some(&skills_root)).await;
     let harness = result.unwrap();
 
-    assert!(harness.contains("<reference skill=\"ontap-rca\" name=\"checklist\">"));
-    assert!(harness.contains("Step 1: gather logs"));
-    assert!(harness.contains("</reference>"));
+    // SKILL.md content is included.
+    assert!(harness.contains("# RCA skill"));
 
-    // TOC includes reference.
-    assert!(harness.contains("  - ref: checklist"));
-}
-
-#[tokio::test]
-#[serial]
-async fn references_are_deduplicated_by_content() {
-    let _guard = EnvVarGuard::set("XLI_ONTAP_HARNESS", OsStr::new("auto"));
-    let tmp = TempDir::new().unwrap();
-    make_ontap_workspace(&tmp);
-
-    let skills_root = tmp.path().join("skills");
-    std::fs::create_dir_all(&skills_root).unwrap();
-
-    let shared_content = "Shared reference content that appears in both skills.";
-
-    create_skill_with_refs(
-        &skills_root,
-        "ontap-rca",
-        "# RCA",
-        &[("shared-ref", shared_content)],
-    );
-    create_skill_with_refs(
-        &skills_root,
-        "ontap-customer-impact",
-        "# Customer Impact",
-        &[("shared-ref", shared_content)],
-    );
-
-    let result = assemble_harness(tmp.path(), Some(&skills_root)).await;
-    let harness = result.unwrap();
-
-    // The shared content should appear exactly once.
-    let count = harness.matches(shared_content).count();
-    assert_eq!(count, 1, "duplicate reference content should be deduplicated");
+    // References are NOT injected — they're available on-demand via skill tool.
+    assert!(!harness.contains("<reference"));
+    assert!(!harness.contains("Step 1: gather logs"));
+    assert!(!harness.contains("ref: checklist"));
 }
 
 #[tokio::test]
