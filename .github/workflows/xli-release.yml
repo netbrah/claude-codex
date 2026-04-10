@@ -83,11 +83,11 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --target ${{ matrix.target }} --release --bin codex
+          cargo build --target ${{ matrix.target }} --release --bin xli
 
       - name: Rename binary
         run: |
-          cp target/${{ matrix.target }}/release/codex ${{ matrix.artifact }}
+          cp target/${{ matrix.target }}/release/xli ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
           ls -lh ${{ matrix.artifact }}
 
