@@ -267,6 +267,18 @@ _publish_installer() {
     else
         _record install fail
     fi
+
+    # Publish version.txt — the TUI update checker reads this to know
+    # when a new version is available.
+    _step "version.txt"
+    local vtmp
+    vtmp=$(mktemp)
+    printf "%s\n" "$VERSION" > "$vtmp"
+    if _upload_with_alias "$vtmp" \
+        "${ARTIFACTORY_BASE}/xli/${VERSION}/version.txt"; then
+        _ok "version.txt ($VERSION)"
+    fi
+    rm -f "$vtmp"
 }
 
 # ══════════════════════════════════════════════════════════════════════
