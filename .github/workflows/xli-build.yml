@@ -1,0 +1,137 @@
+# Build XLI binaries for macOS arm64 + Linux x86_64
+#
+# Flow:
+#   push to dev → build mac + linux → upload as GH artifacts
+#   manual dispatch → same
+#   tag xli-v* → same
+#
+# After CI completes, pull artifacts locally and ship:
+#   gh run download <run-id> -D artifacts/
+#   deploy/upload.sh ship
+
+name: xli-build
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'codex-rs/**'
+      - 'deploy/**'
+      - '.github/workflows/xli-build.yml'
+    tags:
+      - 'xli-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label (default: from package.json)'
+        required: false
+        default: ''
+
+concurrency:
+  group: xli-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build - ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-xlarge
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+            artifact_name: xli-darwin-arm64
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-amd64
+            artifact_name: xli-linux-amd64
+
+    defaults:
+      run:
+        working-directory: codex-rs
+
+    env:
+      CARGO_PROFILE_RELEASE_LTO: thin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            codex-rs/target
+          key: xli-${{ matrix.target }}-${{ hashFiles('codex-rs/Cargo.lock') }}
+          restore-keys: xli-${{ matrix.target }}-
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            pkg-config libcap-dev
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} -p codex-cli
+
+      - name: Strip + measure
+        run: |
+          BIN="target/${{ matrix.target }}/release/xli"
+          strip "$BIN" 2>/dev/null || true
+          echo "### ${{ matrix.platform }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -lh "$BIN" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: codex-rs/target/${{ matrix.target }}/release/xli
+          retention-days: 30
+
+  summary:
+    name: Summary
+    runs-on: ubuntu-24.04
+    needs: build
+    if: always()
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Build summary
+        run: |
+          echo "## XLI Build Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Platform | Size | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          for name in xli-darwin-arm64 xli-linux-amd64; do
+            if [[ -f "artifacts/$name/xli" ]]; then
+              size=$(du -h "artifacts/$name/xli" | cut -f1)
+              echo "| $name | $size | :white_check_mark: |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| $name | — | :x: |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Pull artifacts locally:**" >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo "# Download from this run:" >> "$GITHUB_STEP_SUMMARY"
+          echo "gh run download ${{ github.run_id }} -D /tmp/xli-artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "# Stage and ship:" >> "$GITHUB_STEP_SUMMARY"
+          echo "cp /tmp/xli-artifacts/xli-darwin-arm64/xli deploy/npm/vendor/aarch64-apple-darwin/xli/xli" >> "$GITHUB_STEP_SUMMARY"
+          echo "cp /tmp/xli-artifacts/xli-linux-amd64/xli deploy/npm/vendor/x86_64-unknown-linux-gnu/xli" >> "$GITHUB_STEP_SUMMARY"
+          echo "deploy/upload.sh ship" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
