@@ -1,9 +1,12 @@
-# Build XLI binaries for macOS arm64 + Linux x86_64
+# Build XLI binaries for macOS arm64 + Linux x86_64 + Linux EL9
 #
 # Flow:
-#   push to dev → build mac + linux → upload as GH artifacts
+#   push to dev → build mac + linux (glibc 2.39) + linux-el9 (glibc 2.34)
 #   manual dispatch → same
 #   tag xli-v* → same
+#
+# The linux-el9 build runs inside an AlmaLinux 9 container to link
+# against glibc 2.34, which is required for RHEL 9 / EL9 hosts.
 #
 # After CI completes, pull artifacts locally and ship:
 #   gh run download <run-id> -D artifacts/
@@ -99,10 +102,67 @@ jobs:
           path: codex-rs/target/${{ matrix.target }}/release/xli
           retention-days: 30
 
+  # ── EL9-compatible build (glibc 2.34) ──────────────────────────────
+  # Runs inside an AlmaLinux 9 container so the resulting binary links
+  # against glibc 2.34 instead of 2.39. Required for RHEL 9 / EL9 hosts.
+  build-el9:
+    name: Build - linux-el9
+    runs-on: ubuntu-24.04
+    container: almalinux:9
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: codex-rs
+    env:
+      CARGO_PROFILE_RELEASE_LTO: thin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install EL9 build deps + Rust
+        working-directory: .
+        run: |
+          dnf install -y gcc gcc-c++ make pkg-config openssl-devel libcap-devel curl perl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            codex-rs/target
+          key: xli-el9-x86_64-${{ hashFiles('codex-rs/Cargo.lock') }}
+          restore-keys: xli-el9-x86_64-
+
+      - name: Build
+        run: |
+          source "$HOME/.cargo/env"
+          cargo build --release --target x86_64-unknown-linux-gnu -p codex-cli
+
+      - name: Strip + measure
+        run: |
+          BIN="target/x86_64-unknown-linux-gnu/release/xli"
+          strip "$BIN" 2>/dev/null || true
+          echo "### linux-el9 (glibc 2.34)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -lh "$BIN" >> "$GITHUB_STEP_SUMMARY"
+          # Show max glibc symbol version for verification
+          objdump -T "$BIN" 2>/dev/null | grep -oP 'GLIBC_\d+\.\d+' | sort -uV | tail -1 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xli-linux-el9
+          path: codex-rs/target/x86_64-unknown-linux-gnu/release/xli
+          retention-days: 30
+
   summary:
     name: Summary
     runs-on: ubuntu-24.04
-    needs: build
+    needs: [build, build-el9]
     if: always()
     steps:
       - name: Download artifacts
@@ -116,12 +176,12 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Platform | Size | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|----------|------|--------|" >> "$GITHUB_STEP_SUMMARY"
-          for name in xli-darwin-arm64 xli-linux-amd64; do
+          for name in xli-darwin-arm64 xli-linux-amd64 xli-linux-el9; do
             if [[ -f "artifacts/$name/xli" ]]; then
               size=$(du -h "artifacts/$name/xli" | cut -f1)
               echo "| $name | $size | :white_check_mark: |" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "| $name | — | :x: |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| $name | --- | :x: |" >> "$GITHUB_STEP_SUMMARY"
             fi
           done
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -133,5 +193,6 @@ jobs:
           echo "# Stage and ship:" >> "$GITHUB_STEP_SUMMARY"
           echo "cp /tmp/xli-artifacts/xli-darwin-arm64/xli deploy/npm/vendor/aarch64-apple-darwin/xli/xli" >> "$GITHUB_STEP_SUMMARY"
           echo "cp /tmp/xli-artifacts/xli-linux-amd64/xli deploy/npm/vendor/x86_64-unknown-linux-gnu/xli" >> "$GITHUB_STEP_SUMMARY"
+          echo "cp /tmp/xli-artifacts/xli-linux-el9/xli deploy/npm/vendor/x86_64-unknown-linux-gnu-el9/xli" >> "$GITHUB_STEP_SUMMARY"
           echo "deploy/upload.sh ship" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

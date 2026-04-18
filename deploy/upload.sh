@@ -48,12 +48,13 @@ _skip()  { printf "%s\n" "${_D}  ⊘ $*${_R}" >&2; }
 _same()  { printf "%s\n" "${_D}  ═ $* (unchanged — skipped)${_R}" >&2; }
 
 # ── Scoreboard ────────────────────────────────────────────────────────
-_SC_MAC="skip"; _SC_LINUX="skip"; _SC_NPM="skip"; _SC_INSTALL="skip"
+_SC_MAC="skip"; _SC_LINUX="skip"; _SC_EL9="skip"; _SC_NPM="skip"; _SC_INSTALL="skip"
 
 _record() {
     case "$1" in
         mac)     _SC_MAC="$2" ;;
         linux)   _SC_LINUX="$2" ;;
+        el9)     _SC_EL9="$2" ;;
         npm)     _SC_NPM="$2" ;;
         install) _SC_INSTALL="$2" ;;
     esac
@@ -77,12 +78,13 @@ _print_scoreboard() {
     printf "%s\n" "${_B}${_P}  ╠═══════════════════════════════════════════╣${_R}"
     _scoreboard_line "macOS arm64 binary"   "$_SC_MAC"
     _scoreboard_line "Linux x86_64 binary"  "$_SC_LINUX"
+    _scoreboard_line "Linux EL9 binary"     "$_SC_EL9"
     _scoreboard_line "npm tarball"          "$_SC_NPM"
     _scoreboard_line "install.sh"           "$_SC_INSTALL"
     printf "%s\n" "${_B}${_P}  ╚═══════════════════════════════════════════╝${_R}"
 
     local any_fail=0
-    for s in "$_SC_MAC" "$_SC_LINUX" "$_SC_NPM" "$_SC_INSTALL"; do
+    for s in "$_SC_MAC" "$_SC_LINUX" "$_SC_EL9" "$_SC_NPM" "$_SC_INSTALL"; do
         [[ "$s" == "fail" ]] && any_fail=1
     done
 
@@ -236,6 +238,17 @@ _publish_linux() {
     fi
 }
 
+_publish_el9() {
+    _step "Linux EL9 Binary (glibc 2.34)"
+    local bin="deploy/npm/vendor/x86_64-unknown-linux-gnu-el9/xli"
+    if _smart_upload "xli Linux EL9" "$bin" \
+        "${ARTIFACTORY_BASE}/xli/${VERSION}/xli-linux-el9"; then
+        _record el9 pass
+    else
+        _record el9 fail
+    fi
+}
+
 _publish_npm() {
     _step "npm Tarball"
     local tgz
@@ -291,8 +304,9 @@ _do_ship() {
     printf "%s\n"   "${_B}${_P}  ╠═════════════════════════════════════════════╣${_R}"
     printf "%s\n"   "${_B}${_P}  ║${_R}  1. macOS arm64 binary → Artifactory"
     printf "%s\n"   "${_B}${_P}  ║${_R}  2. Linux x86_64 binary → Artifactory"
-    printf "%s\n"   "${_B}${_P}  ║${_R}  3. npm tarball → Artifactory"
-    printf "%s\n"   "${_B}${_P}  ║${_R}  4. install.sh → Artifactory"
+    printf "%s\n"   "${_B}${_P}  ║${_R}  3. Linux EL9 binary (RHEL 9) → Artifactory"
+    printf "%s\n"   "${_B}${_P}  ║${_R}  4. npm tarball → Artifactory"
+    printf "%s\n"   "${_B}${_P}  ║${_R}  5. install.sh → Artifactory"
     printf "%s\n"   "${_B}${_P}  ╚═════════════════════════════════════════════╝${_R}"
     printf "\n"
     printf "  %s\n" "${_D}Auth: ${_AUTH_METHOD} │ Release: ${RELEASE_TAG}${_R}"
@@ -300,6 +314,7 @@ _do_ship() {
 
     _publish_mac
     _publish_linux
+    _publish_el9
     _publish_npm
     _publish_installer
 
@@ -320,6 +335,7 @@ _do_promote() {
 
     local artifacts="xli/${target_version}/xli-darwin-arm64
 xli/${target_version}/xli-linux-amd64
+xli/${target_version}/xli-linux-el9
 xli/${target_version}/install.sh"
 
     local tmp_dir
@@ -361,6 +377,7 @@ usage() {
     printf "    ship              Upload all artifacts (versioned + release)\n"
     printf "    mac               Upload macOS binary only\n"
     printf "    linux             Upload Linux binary only\n"
+    printf "    linux-el9         Upload Linux EL9 binary only\n"
     printf "    npm               Upload npm tarball only\n"
     printf "    installer         Upload install.sh only\n"
     printf "    promote <ver>     Copy <ver> into the release slot\n\n"
@@ -375,6 +392,7 @@ case "${1:-}" in
     ship|all)      _do_ship ;;
     mac)           _publish_mac ;;
     linux)         _publish_linux ;;
+    linux-el9|el9) _publish_el9 ;;
     npm)           _publish_npm ;;
     installer|install) _publish_installer ;;
     promote)       shift; _do_promote "$@" ;;

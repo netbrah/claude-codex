@@ -5,6 +5,10 @@
 #
 # Downloads binary to ~/.local/bin, bootstraps config.toml, adds to PATH.
 # Re-run to update. Never overwrites existing config.
+#
+# Linux glibc detection:
+#   glibc >= 2.38 → xli-linux-amd64  (Ubuntu 24.04 build)
+#   glibc <  2.38 → xli-linux-el9    (AlmaLinux 9 build, glibc 2.34)
 
 set -euo pipefail
 
@@ -17,10 +21,35 @@ INSTALL_DIR="${XLI_INSTALL_DIR:-$HOME/.local/bin}"
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
+_glibc_version() {
+    # Returns glibc major.minor as a comparable integer (e.g. 2.34 → 234)
+    local ver
+    ver="$(ldd --version 2>&1 | head -1 | grep -oP '\d+\.\d+$' || true)"
+    if [[ -z "$ver" ]]; then
+        # Fallback: try the libc.so.6 banner
+        ver="$(/lib64/libc.so.6 2>&1 | head -1 | grep -oP '\d+\.\d+' || true)"
+    fi
+    if [[ -z "$ver" ]]; then
+        echo "0"
+        return
+    fi
+    local major minor
+    major="${ver%%.*}"
+    minor="${ver##*.}"
+    echo "$((major * 100 + minor))"
+}
+
 case "$OS-$ARCH" in
     Darwin-arm64)  PLATFORM="darwin-arm64" ;;
     Darwin-x86_64) PLATFORM="darwin-arm64" ;; # Rosetta
-    Linux-x86_64)  PLATFORM="linux-amd64"  ;;
+    Linux-x86_64)
+        GLIBC_VER=$(_glibc_version)
+        if [[ "$GLIBC_VER" -ge 238 ]]; then
+            PLATFORM="linux-amd64"
+        else
+            PLATFORM="linux-el9"
+        fi
+        ;;
     Linux-aarch64) PLATFORM="linux-amd64"  ;;
     *) echo "Unsupported platform: $OS-$ARCH" >&2; exit 1 ;;
 esac

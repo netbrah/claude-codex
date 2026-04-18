@@ -177,6 +177,7 @@ you get notified, then locally:
     gh run download <run-id> -D /tmp/xli-artifacts
     cp /tmp/xli-artifacts/xli-darwin-arm64/xli deploy/npm/vendor/aarch64-apple-darwin/xli/xli
     cp /tmp/xli-artifacts/xli-linux-amd64/xli deploy/npm/vendor/x86_64-unknown-linux-gnu/xli
+    cp /tmp/xli-artifacts/xli-linux-el9/xli deploy/npm/vendor/x86_64-unknown-linux-gnu-el9/xli
     deploy/upload.sh ship
 ```
 

@@ -1,7 +1,7 @@
-# XLI Release — build both platforms on GitHub Actions, publish to Artifactory.
+# XLI Release — build all platforms on GitHub Actions, publish to Artifactory.
 #
 # Trigger: push a tag like `rust-v0.2.0` or manual dispatch.
-# Builds macOS arm64 + Linux x86_64 gnu, uploads to Artifactory, publishes version.txt.
+# Builds macOS arm64 + Linux x86_64 (glibc 2.39) + Linux EL9 (glibc 2.34).
 #
 # Usage:
 #   git tag rust-v0.2.0 && git push origin rust-v0.2.0
@@ -96,8 +96,49 @@ jobs:
           name: ${{ matrix.artifact }}
           path: codex-rs/${{ matrix.artifact }}
 
+  # ── EL9-compatible build (glibc 2.34) ──────────────────────────────
+  build-el9:
+    needs: version
+    name: Build linux-el9
+    runs-on: ubuntu-24.04
+    container: almalinux:9
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: codex-rs
+    env:
+      CARGO_PROFILE_RELEASE_LTO: thin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install EL9 build deps + Rust
+        working-directory: .
+        run: |
+          dnf install -y gcc gcc-c++ make pkg-config openssl-devel libcap-devel curl perl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          source "$HOME/.cargo/env"
+          cargo build --target x86_64-unknown-linux-gnu --release --bin xli
+
+      - name: Rename binary
+        run: |
+          cp target/x86_64-unknown-linux-gnu/release/xli xli-linux-el9
+          chmod +x xli-linux-el9
+          ls -lh xli-linux-el9
+          # Show max glibc version for verification
+          objdump -T xli-linux-el9 2>/dev/null | grep -oP 'GLIBC_\d+\.\d+' | sort -uV | tail -1 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xli-linux-el9
+          path: codex-rs/xli-linux-el9
+
   publish:
-    needs: [version, build]
+    needs: [version, build, build-el9]
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
@@ -117,9 +158,9 @@ jobs:
           upload() {
             local file="$1" dest="$2"
             echo "▸ Uploading $(basename "$file") → $dest"
-            curl -fsSL -X PUT 
-              -H "Authorization: Bearer $ARTIFACTORY_TOKEN" 
-              -T "$file" 
+            curl -fsSL -X PUT \
+              -H "Authorization: Bearer $ARTIFACTORY_TOKEN" \
+              -T "$file" \
               "$dest"
             echo "  ✓ $(basename "$file")"
           }
@@ -127,7 +168,7 @@ jobs:
           BASE="${ARTIFACTORY_BASE}/xli"
 
           # Binaries — versioned + release alias
-          for artifact in xli-darwin-arm64 xli-linux-amd64; do
+          for artifact in xli-darwin-arm64 xli-linux-amd64 xli-linux-el9; do
             FILE="artifacts/${artifact}/${artifact}"
             chmod +x "$FILE"
             upload "$FILE" "${BASE}/${VERSION}/${artifact}"
