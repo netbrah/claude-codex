@@ -1,4 +1,4 @@
-//! Shared ripgrep search helpers used by `analyze_symbol_source` (and
+//! Shared ripgrep search helpers (and
 //! any future tool that needs manifest-filtered searches).
 //!
 //! This module owns the two primitives that avoid directory-traversal /

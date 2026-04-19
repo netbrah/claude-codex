@@ -11,7 +11,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-clang-graph = ["dep:clang", "dep:clang-sys", "dep:petgraph", "dep:bincode"]
 
 [[bin]]
 name = "xli-write-config-schema"
@@ -126,13 +125,6 @@ uuid = { workspace = true, features = ["serde", "v4", "v5"] }
 which = { workspace = true }
 whoami = { workspace = true }
 zip = { workspace = true }
-
-# Optional: libclang-based call graph (requires libclang.so at build time)
-clang = { version = "2.0", optional = true }
-clang-sys = { version = "1.8", features = ["runtime"], optional = true }
-petgraph = { version = "0.6", optional = true }
-bincode = { version = "1", optional = true }
-
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"

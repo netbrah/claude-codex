@@ -27,7 +27,7 @@ codex-rs/
 │       ├── spec.rs            ← UPSTREAM (94 commits — danger zone)
 │       ├── handlers/
 │       │   ├── mod.rs         ← UPSTREAM (24 commits)
-│       │   ├── analyze_symbol_source.rs  ← OURS (new file)
+│       │   ├── (analyze_symbol_source.rs removed)
 │       │   ├── workspace_index.rs        ← OURS (new file)
 │       │   ├── manifest_builder.rs       ← OURS (new file)
 │       │   ├── search_rg.rs              ← OURS (new file)
