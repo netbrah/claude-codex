@@ -204,7 +204,7 @@ impl WidgetRef for &UpdatePromptScreen {
         column.push(
             Line::from(vec![
                 "Release notes: ".dim(),
-                "https://generic.repo.eng.netapp.com/user/palanisd/xli/release/"
+                "https://github.com/realsweetpaul/claude-codex/releases"
                     .dim()
                     .underlined(),
             ])

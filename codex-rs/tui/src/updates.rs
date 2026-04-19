@@ -53,9 +53,7 @@ struct VersionInfo {
 }
 
 const VERSION_FILENAME: &str = "version.json";
-/// XLI publishes a plain-text `version.txt` alongside the release binary.
-const LATEST_VERSION_URL: &str =
-    "https://generic.repo.eng.netapp.com/user/palanisd/xli/release/version.txt";
+const LATEST_VERSION_URL: &str = "";
 
 fn version_filepath(config: &Config) -> PathBuf {
     config.codex_home.join(VERSION_FILENAME)

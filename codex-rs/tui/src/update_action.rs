@@ -8,8 +8,7 @@ pub enum UpdateAction {
     CurlInstall,
 }
 
-const XLI_INSTALL_CMD: &str =
-    "curl -fsSL https://generic.repo.eng.netapp.com/user/palanisd/xli/release/install.sh | bash";
+const XLI_INSTALL_CMD: &str = "";
 
 impl UpdateAction {
     /// Returns the command-line arguments for invoking the update.
