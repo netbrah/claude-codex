@@ -1,10 +1,7 @@
 /// Update action the CLI should perform after the TUI exits.
-///
-/// XLI distributes through a single curl installer on Artifactory.
-/// No npm, no bun, no homebrew.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
-    /// Re-run the XLI installer to pull the latest binary.
+    /// Re-run the installer to pull the latest binary.
     CurlInstall,
 }
 
