@@ -31,7 +31,7 @@ Read these upstream files FIRST to understand the new architecture:
 | `manifest_builder.rs` | Builds file manifest from git/walk |
 | `search_rg.rs` | Manifest-filtered ripgrep search |
 | `dir_stats.rs` | File count estimation for large repos |
-| `analyze_symbol_source.rs` | Already uses the index (working) |
+| (analyze_symbol_source removed) | — |
 
 ## Options (pick based on investigation)
 
@@ -41,8 +41,9 @@ If `codex-tools` has a handler with a search function, inject our index as an op
 ### Option 2: Re-add grep_files.rs
 Create a new handler that wraps upstream's grep with our index pre-filter. Register it alongside or instead of upstream's grep.
 
-### Option 3: Make analyze_symbol_source the sole index consumer
-If grep is handled entirely by upstream now and our index only serves `analyze_symbol_source` (which it already does), declare victory. The index modules remain but only `analyze_symbol_source` calls them.
+### Option 3: ~~Make analyze_symbol_source the sole index consumer~~ (REMOVED)
+~~If grep is handled entirely by upstream now and our index only serves `analyze_symbol_source` (which it already does), declare victory. The index modules remain but only `analyze_symbol_source` calls them.~~
+NOTE: analyze_symbol_source was removed as part of C++ tooling cleanup.
 
 ## Upstream Compatibility
 

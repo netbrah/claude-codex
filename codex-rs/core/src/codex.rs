@@ -589,17 +589,6 @@ impl Codex {
             .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
             .unwrap_or_else(|| model_info.get_model_instructions(config.personality));
 
-        // Prepend ONTAP harness when working in an ONTAP workspace with
-        // XLI_ONTAP_HARNESS enabled. The harness sets the APEX protocol
-        // identity and operational mode before the model system prompt.
-        let base_instructions =
-            if let Some(harness) = crate::ontap_harness::assemble_harness(&config.cwd, None).await
-            {
-                format!("{harness}\n\n---\n\n{base_instructions}")
-            } else {
-                base_instructions
-            };
-
         // Respect thread-start tools. When missing (resumed/forked threads), read from the db
         // first, then fall back to rollout-file tools.
         let persisted_tools = if dynamic_tools.is_empty() {

@@ -1,8 +1,5 @@
 pub(crate) mod agent_jobs;
-mod analyze_symbol_source;
 pub(crate) mod apply_patch;
-#[cfg(feature = "clang-graph")]
-pub(crate) mod clang_graph;
 mod dir_stats;
 mod dynamic;
 mod find_files;
@@ -26,8 +23,6 @@ mod tool_search;
 mod tool_suggest;
 pub(crate) mod unified_exec;
 mod view_image;
-mod workspace_index;
-
 use codex_sandboxing::policy_transforms::intersect_permission_profiles;
 use codex_sandboxing::policy_transforms::merge_permission_profiles;
 use codex_sandboxing::policy_transforms::normalize_additional_permissions;
@@ -42,7 +37,6 @@ use crate::function_tool::FunctionCallError;
 use crate::sandboxing::SandboxPermissions;
 pub(crate) use crate::tools::code_mode::CodeModeExecuteHandler;
 pub(crate) use crate::tools::code_mode::CodeModeWaitHandler;
-pub use analyze_symbol_source::AnalyzeSymbolSourceHandler;
 pub use apply_patch::ApplyPatchHandler;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::AskForApproval;

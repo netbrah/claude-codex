@@ -31,10 +31,10 @@ XLI is a fork of `openai/codex`. Every code change MUST respect:
 | S-008 Modality gating              | Image→text placeholder for non-image models                       | ✅ Landed (`1347649ff`) | ZERO (new file)           |
 | S-014 trailing assistant guard     | Vertex 400 fix                                                    | ✅ Landed (`e07760b9a`) | LOW                       |
 | S-020 Unit tests (Sub-A/B)         | Comprehensive translator + client tests                           | ✅ Landed (`eba35c17c`) | ZERO (test files)         |
-| S-030 C++ intelligence (CA-9)      | `analyze_symbol_source`, `clang_graph`, manifest, workspace_index | ✅ Landed (`b73fdf671`) | ZERO (new files)          |
+| S-030 C++ intelligence (CA-9)      | REMOVED — C++ specific tooling purged                             | ❌ Removed              | N/A                       |
 | S-040 XLI proprietary deploy layer | `~/.xli` home isolation + branding                                | ✅ Landed (`31ef63f54`) | ZERO (proprietary branch) |
 | S-041 grep_files cleanup           | Removed dead `top_subdirs` and `grep_files_tests`                 | ✅ Landed (`903c35049`) | ZERO                      |
-| S-042 Tool registry refactor       | `analyze_symbol_source` extracted to codex-tools crate            | ✅ Landed (`1d4f503a8`) | LOW                       |
+| S-042 Tool registry refactor       | REMOVED — C++ specific tooling purged                             | ❌ Removed              | N/A                       |
 | Rebrand: core                      | Binary, home dir, CLI, build, TUI → xli                           | ✅ Landed (`3793ee797`) | Proprietary               |
 | Rebrand: config/protocol           | Config, protocol, state, util renames                             | ✅ Landed (`42572f045`) | Proprietary               |
 | Rebrand: sandbox/platform          | Sandbox and platform layers                                       | ✅ Landed (`de6b63936`) | Proprietary               |
@@ -123,7 +123,7 @@ XLI is a fork of `openai/codex`. Every code change MUST respect:
 
 | ID    | Sortie                          | Category | Complexity | Impact                                                     |
 | ----- | ------------------------------- | -------- | ---------- | ---------------------------------------------------------- |
-| S-031 | codex-lsp-server crate skeleton | Feature  | Large      | C++ intelligence via LSP — S-030 landed, this is unblocked |
+| S-031 | codex-lsp-server crate skeleton | Feature  | Large      | DEFERRED — C++ tooling removed |
 
 
 ### Tier 4 — Feature Builds (from Enhancement Spec)
@@ -197,9 +197,9 @@ XLI is a fork of `openai/codex`. Every code change MUST respect:
 
 | ID    | Sortie                                           | Date       | Commit      | Result                                |
 | ----- | ------------------------------------------------ | ---------- | ----------- | ------------------------------------- |
-| S-030 | C++ intelligence payload (merged to dev)         | Pre 03-31  | `b73fdf671` | ✅ Surgical extraction landed          |
+| S-030 | C++ intelligence payload                         | Pre 03-31  | —           | ❌ Removed — C++ tooling purged        |
 | S-041 | Remove dead `top_subdirs` and `grep_files_tests` | Post 03-31 | `903c35049` | ✅ Dead code cleaned (Option 3 chosen) |
-| S-042 | Extract `analyze_symbol_source` to codex-tools   | Post 03-31 | `1d4f503a8` | ✅ Moved to upstream crate pattern     |
+| S-042 | Tool registry refactor                           | Post 03-31 | —           | ❌ Removed — C++ tooling purged        |
 
 
 ### Wave 4 — XLI Rebrand + Home Isolation

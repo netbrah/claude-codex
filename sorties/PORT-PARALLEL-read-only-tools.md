@@ -33,7 +33,7 @@ The mechanism exists. The gap is: most tools default to non-parallel. We need to
    - `read_file` — pure read, no side effects
    - `list_directory` — pure read
    - `search_text` / `grep` — pure read
-   - `analyze_symbol_source` — pure read (our tool)
+   - ~~`analyze_symbol_source` — REMOVED~~
 
 2. In `parallel.rs`, ensure the batching logic correctly fires parallel tools concurrently when Claude returns multiple tool calls in one response.
 

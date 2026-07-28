@@ -68,8 +68,6 @@ mod mcp_tool_call;
 mod memories;
 pub(crate) mod mention_syntax;
 pub(crate) mod message_history;
-pub(crate) mod ontap_build;
-pub(crate) mod ontap_harness;
 pub(crate) mod utils;
 pub use mention_syntax::PLUGIN_TEXT_MENTION_SIGIL;
 pub use mention_syntax::TOOL_MENTION_SIGIL;
