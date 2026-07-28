@@ -1,0 +1,56 @@
+---
+source: provider-gemini/tests/schema_snapshots.rs
+expression: sanitized
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "cmd": {
+      "description": "Shell command to execute.",
+      "type": "string"
+    },
+    "justification": {
+      "description": "Only set if sandbox_permissions is \\\"require_escalated\\\".\n                    Request approval from the user to run this command outside the sandbox.\n                    Phrased as a simple question that summarizes the purpose of the\n                    command as it relates to the task at hand - e.g. 'Do you want to\n                    fetch and pull the latest version of this git branch?'",
+      "type": "string"
+    },
+    "login": {
+      "description": "Whether to run the shell with -l/-i semantics. Defaults to true.",
+      "type": "boolean"
+    },
+    "max_output_tokens": {
+      "description": "Maximum number of tokens to return. Excess output will be truncated.",
+      "type": "number"
+    },
+    "prefix_rule": {
+      "description": "Only specify when sandbox_permissions is `require_escalated`.\n                        Suggest a prefix command pattern that will allow you to fulfill similar requests from the user in the future.\n                        Should be a short but reasonable prefix, e.g. [\\\"git\\\", \\\"pull\\\"] or [\\\"uv\\\", \\\"run\\\"] or [\\\"pytest\\\"].",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "sandbox_permissions": {
+      "description": "Sandbox permissions for the command. Set to \"require_escalated\" to request running without sandbox restrictions; defaults to \"use_default\".",
+      "type": "string"
+    },
+    "shell": {
+      "description": "Shell binary to launch. Defaults to the user's default shell.",
+      "type": "string"
+    },
+    "tty": {
+      "description": "Whether to allocate a TTY for the command. Defaults to false (plain pipes); set to true to open a PTY and access TTY process.",
+      "type": "boolean"
+    },
+    "workdir": {
+      "description": "Optional working directory to run the command in; defaults to the turn cwd.",
+      "type": "string"
+    },
+    "yield_time_ms": {
+      "description": "How long to wait (in milliseconds) for output before yielding.",
+      "type": "number"
+    }
+  },
+  "required": [
+    "cmd"
+  ],
+  "type": "object"
+}

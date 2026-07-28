@@ -1,0 +1,10 @@
+{
+  "fixture_id": "CR-09",
+  "hi_rows": ["HI-C6-003"],
+  "hce05_seed": "eq-06-text-parallel-tools",
+  "bundle_schema": "conversation-record-v1",
+  "requires_hce02": false,
+  "spokes": ["apex", "xli"],
+  "phase": 1,
+  "hce05_seed_mode": "topology-only"
+}

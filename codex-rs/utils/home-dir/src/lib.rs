@@ -1,3 +1,4 @@
+use codex_utils_absolute_path::AbsolutePathBuf;
 use dirs::home_dir;
 use std::path::PathBuf;
 
@@ -9,7 +10,7 @@ use std::path::PathBuf;
 ///   value will be canonicalized and this function will Err otherwise.
 /// - If the env var is not set, this function does not verify that the
 ///   directory exists.
-pub fn find_codex_home() -> std::io::Result<PathBuf> {
+pub fn find_codex_home() -> std::io::Result<AbsolutePathBuf> {
     // XLI_HOME takes precedence; fall back to CODEX_HOME for legacy compat.
     let home_env = std::env::var("XLI_HOME")
         .ok()
@@ -22,7 +23,7 @@ pub fn find_codex_home() -> std::io::Result<PathBuf> {
     find_codex_home_from_env(home_env.as_deref())
 }
 
-fn find_codex_home_from_env(home_env: Option<&str>) -> std::io::Result<PathBuf> {
+fn find_codex_home_from_env(home_env: Option<&str>) -> std::io::Result<AbsolutePathBuf> {
     // Honor the env variable when it is set to allow users
     // (and tests) to override the default location.
     match home_env {
@@ -45,12 +46,13 @@ fn find_codex_home_from_env(home_env: Option<&str>) -> std::io::Result<PathBuf> 
                     format!("XLI_HOME points to {val:?}, but that path is not a directory"),
                 ))
             } else {
-                path.canonicalize().map_err(|err| {
+                let canonical = path.canonicalize().map_err(|err| {
                     std::io::Error::new(
                         err.kind(),
                         format!("failed to canonicalize XLI_HOME {val:?}: {err}"),
                     )
-                })
+                })?;
+                AbsolutePathBuf::from_absolute_path(canonical)
             }
         }
         None => {
@@ -61,7 +63,7 @@ fn find_codex_home_from_env(home_env: Option<&str>) -> std::io::Result<PathBuf> 
                 )
             })?;
             p.push(".xli");
-            Ok(p)
+            AbsolutePathBuf::from_absolute_path(p)
         }
     }
 }
@@ -69,6 +71,7 @@ fn find_codex_home_from_env(home_env: Option<&str>) -> std::io::Result<PathBuf> 
 #[cfg(test)]
 mod tests {
     use super::find_codex_home_from_env;
+    use codex_utils_absolute_path::AbsolutePathBuf;
     use dirs::home_dir;
     use pretty_assertions::assert_eq;
     use std::fs;
@@ -121,15 +124,16 @@ mod tests {
             .path()
             .canonicalize()
             .expect("canonicalize temp home");
+        let expected = AbsolutePathBuf::from_absolute_path(expected).expect("absolute home");
         assert_eq!(resolved, expected);
     }
 
     #[test]
     fn find_xli_home_without_env_uses_default_home_dir() {
-        let resolved =
-            find_codex_home_from_env(/*home_env*/ None).expect("default XLI_HOME");
+        let resolved = find_codex_home_from_env(/*home_env*/ None).expect("default XLI_HOME");
         let mut expected = home_dir().expect("home dir");
         expected.push(".xli");
+        let expected = AbsolutePathBuf::from_absolute_path(expected).expect("absolute home");
         assert_eq!(resolved, expected);
     }
 }

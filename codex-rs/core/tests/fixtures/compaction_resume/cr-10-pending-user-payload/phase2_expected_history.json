@@ -1,0 +1,21 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "<state_snapshot>\nHCE-06 deterministic compaction summary for fixture goldens.\n</state_snapshot>"
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "text": "Got it. Thanks for the additional context!"
+        }
+      ]
+    }
+  ],
+  "status": 1
+}

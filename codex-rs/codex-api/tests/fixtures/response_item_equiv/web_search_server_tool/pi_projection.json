@@ -1,0 +1,26 @@
+{
+  "_doc": "Pi-IR projection of web_search_server_tool/messages_sse.json. Pi's state machine has NO branch for server_tool_use or web_search_tool_result content blocks (see refs/anthropic/claude-agent-sdk-recon-2026-06-23/upstream/claude-agent-sdk-pi/index.ts content_block.type switch — only text/thinking/tool_use exist). Pi simply does not surface server-side tool events to its output.content[]. XLI does — it projects server_tool_use(web_search) + web_search_tool_result into ResponseItem::WebSearchCall. This fixture documents the ASYMMETRY (XLI extension beyond pi vocabulary) and is the canonical anchor for RI-022 cross-wire coverage.",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "event.type:content_block_stop:1095",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_pi_state_machine_branches_MISSING": [
+    "content_block.type:server_tool_use — pi has no arm",
+    "content_block.type:web_search_tool_result — pi has no arm"
+  ],
+  "_asymmetry_xli_extension": "WebSearchCall",
+  "_xli_target": "ResponseItem[WebSearchCall{id, status='completed', action=Search{query}}]",
+  "_xli_only_items": [
+    {
+      "type": "web_search_call",
+      "id": "srv_equiv_ws",
+      "status": "completed",
+      "action": { "type": "search", "query": "weather NYC" }
+    }
+  ],
+  "output_content": []
+}

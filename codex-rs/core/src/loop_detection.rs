@@ -6,9 +6,10 @@
 //! signals that a loop has been detected so the caller can inject a
 //! loop-breaking system message and pause the turn.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
-use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
 
 /// Default number of identical consecutive tool calls before a loop is detected.
 const DEFAULT_TOOL_LOOP_THRESHOLD: usize = 5;
@@ -21,8 +22,7 @@ const DEFAULT_CONTENT_LOOP_THRESHOLD: usize = 10;
 const MAX_HISTORY: usize = 64;
 
 /// The message injected into the conversation when a loop is detected.
-pub(crate) const LOOP_BREAK_MESSAGE: &str =
-    "You appear to be in a loop, repeating the same tool calls or producing the same output \
+pub(crate) const LOOP_BREAK_MESSAGE: &str = "You appear to be in a loop, repeating the same tool calls or producing the same output \
      repeatedly. Please try a different approach.";
 
 /// Tracks recent tool calls and assistant content to detect infinite loops.

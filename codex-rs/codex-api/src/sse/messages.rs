@@ -8,7 +8,10 @@ use crate::error::ApiError;
 use codex_client::ByteStream;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::protocol::TokenUsage;
+use codex_protocol::models::WebSearchAction;
+
+use crate::sse::usage::RawUsage;
+use crate::sse::usage::normalize_token_usage;
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use serde::Deserialize;
@@ -21,6 +24,128 @@ use tracing::trace;
 use tracing::warn;
 
 use crate::common::ResponseStream;
+use crate::sse::messages_wire_types::AnthropicErrorKind;
+use crate::sse::messages_wire_types::ContentBlock;
+use crate::sse::messages_wire_types::ContentBlockDelta;
+use crate::sse::messages_wire_types::MessageStreamEvent;
+
+/// Parse a flat wire tool name back into a structured
+/// `(namespace, bare_name)` pair so the tool-router HashMap lookup
+/// (which keys on the structured `ToolName` shape used at
+/// registration time) succeeds.
+///
+/// For inputs that start with `mcp__<server>__<tool>` (the canonical
+/// XLI flat wire form for namespaced MCP tools on `/messages`),
+/// returns `(Some("mcp__<server>"), "<tool>")`. For built-in tool
+/// names and any input without the `mcp__<server>__<tool>` shape,
+/// returns `(None, name)` so the call still dispatches as a plain
+/// function tool.
+///
+/// Inlined here (not imported from `codex-mcp`) because
+/// `codex-mcp` depends on `codex-api`; the reverse dependency is
+/// not available. Keep this in sync with
+/// `codex_mcp::parse_flat_mcp_tool_name`.
+pub(crate) fn parse_flat_mcp_tool_name_pub(name: &str) -> (Option<String>, String) {
+    parse_flat_mcp_tool_name(name)
+}
+
+fn parse_flat_mcp_tool_name(name: &str) -> (Option<String>, String) {
+    const MCP_PREFIX: &str = "mcp__";
+    const DELIM: &str = "__";
+    let Some(rest) = name.strip_prefix(MCP_PREFIX) else {
+        return (None, name.to_string());
+    };
+    let Some(idx) = rest.find(DELIM) else {
+        return (None, name.to_string());
+    };
+    let (server, after) = rest.split_at(idx);
+    let tool = &after[DELIM.len()..];
+    if server.is_empty() || tool.is_empty() {
+        return (None, name.to_string());
+    }
+    (Some(format!("{MCP_PREFIX}{server}")), tool.to_string())
+}
+
+/// Curated catalogue of Anthropic `/messages` wire-vocabulary strings
+/// XLI knows about. **This is rung-2 of the harness-invariant ladder
+/// (see `cli-ops/sortie-board/xli-v3/`)** — a stringly-typed table
+/// preserved as documentation alongside the rung-3 typed enums in
+/// [`crate::sse::messages_wire_types`].
+///
+/// Every entry is either:
+///   - **handled**: the parser has a dedicated arm for it.
+///   - **drop**: explicit silent drop (we know what it is, we don't
+///     surface it; document the policy here so it's not invisible).
+///
+/// With rung-3 typed enums in place, unknown upstream types now route
+/// to a typed `Unknown { tag, raw }` variant rather than a silent
+/// fall-through, and exhaustive matching on the enum is the compile-time
+/// guard that a new variant doesn't get forgotten.
+///
+/// Source-of-truth for the wire vocabulary:
+///   https://docs.anthropic.com/en/api/messages-streaming
+pub(crate) mod wire_vocab {
+    /// Top-level SSE event types we receive on /messages stream.
+    #[allow(dead_code)] // consumed by wire_vocab_consistent_with_parser regression test
+    pub(crate) const STREAM_EVENTS: &[(&str, WirePolicy)] = &[
+        ("message_start", WirePolicy::Handled),
+        ("content_block_start", WirePolicy::Handled),
+        ("content_block_delta", WirePolicy::Handled),
+        ("content_block_stop", WirePolicy::Handled),
+        ("message_delta", WirePolicy::Handled),
+        ("message_stop", WirePolicy::Handled),
+        (
+            "ping",
+            WirePolicy::DropExplicit("keepalive; no payload to surface"),
+        ),
+        ("error", WirePolicy::Handled),
+    ];
+
+    /// `content_block.type` discriminator. Set by `content_block_start`.
+    #[allow(dead_code)] // consumed by wire_vocab_consistent_with_parser regression test
+    pub(crate) const CONTENT_BLOCKS: &[(&str, WirePolicy)] = &[
+        ("text", WirePolicy::Handled),
+        ("tool_use", WirePolicy::Handled),
+        ("thinking", WirePolicy::Handled),
+        ("redacted_thinking", WirePolicy::Handled),
+        (
+            "server_tool_use",
+            WirePolicy::DropExplicit("server-side beta tool; not currently surfaced to XLI"),
+        ),
+        (
+            "web_search_tool_result",
+            WirePolicy::DropExplicit("server-side beta tool; not currently surfaced to XLI"),
+        ),
+        (
+            "code_execution_tool_use",
+            WirePolicy::DropExplicit("server-side beta tool; not currently surfaced to XLI"),
+        ),
+    ];
+
+    /// `delta.type` discriminator on `content_block_delta` events.
+    #[allow(dead_code)] // consumed by wire_vocab_consistent_with_parser regression test
+    pub(crate) const CONTENT_BLOCK_DELTAS: &[(&str, WirePolicy)] = &[
+        ("text_delta", WirePolicy::Handled),
+        ("input_json_delta", WirePolicy::Handled),
+        ("thinking_delta", WirePolicy::Handled),
+        ("signature_delta", WirePolicy::Handled),
+        (
+            "citations_delta",
+            WirePolicy::DropExplicit("citations not surfaced in XLI yet; tracked separately"),
+        ),
+    ];
+
+    #[allow(dead_code)] // consumed by wire_vocab_* regression tests
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum WirePolicy {
+        /// Parser has a dedicated arm; payload is surfaced as a `ResponseEvent`.
+        Handled,
+        /// Wire type is recognized but intentionally not surfaced. The
+        /// `&'static str` is human-readable rationale that shows up in
+        /// the regression test if anyone tries to remove it.
+        DropExplicit(&'static str),
+    }
+}
 
 /// Tracks in-flight content blocks by index.
 struct BlockTracker {
@@ -40,6 +165,14 @@ enum BlockState {
         name: String,
         arguments: String,
     },
+    ServerToolUse {
+        id: String,
+        name: String,
+        arguments: String,
+    },
+    WebSearchToolResult {
+        tool_use_id: String,
+    },
     RedactedThinking {
         data: String,
     },
@@ -53,37 +186,15 @@ impl BlockTracker {
     }
 }
 
-/// Raw deserialized SSE data from an Anthropic `/messages` event.
-#[derive(Debug, Deserialize)]
-struct MessagesStreamEvent {
-    #[serde(rename = "type")]
-    kind: String,
-
-    #[serde(default)]
-    index: Option<u64>,
-
-    #[serde(default)]
-    content_block: Option<serde_json::Value>,
-
-    #[serde(default)]
-    delta: Option<serde_json::Value>,
-
-    #[serde(default)]
-    message: Option<serde_json::Value>,
-
-    #[serde(default)]
-    usage: Option<serde_json::Value>,
-
-    #[serde(default)]
-    error: Option<serde_json::Value>,
-}
-
 /// Spawns a task that reads SSE events from a `/messages` byte stream and maps
 /// them into `ResponseEvent`s on the returned channel.
 pub fn spawn_messages_stream(stream: ByteStream, idle_timeout: Duration) -> ResponseStream {
     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
     tokio::spawn(process_messages_sse(stream, tx_event, idle_timeout));
-    ResponseStream { rx_event }
+    ResponseStream {
+        rx_event,
+        upstream_request_id: None,
+    }
 }
 
 async fn process_messages_sse(
@@ -132,7 +243,7 @@ async fn process_messages_sse(
 
         trace!("Messages SSE event: {}", &sse.data);
 
-        let event: MessagesStreamEvent = match serde_json::from_str(&sse.data) {
+        let event: MessageStreamEvent = match serde_json::from_str(&sse.data) {
             Ok(event) => event,
             Err(e) => {
                 debug!(
@@ -143,453 +254,631 @@ async fn process_messages_sse(
             }
         };
 
-        match event.kind.as_str() {
-            "message_start" => {
-                if let Some(msg) = &event.message {
-                    if let Some(id) = msg.get("id").and_then(|v| v.as_str()) {
-                        response_id = id.to_owned();
-                    }
-                    if let Some(u) = msg.get("usage") {
-                        if let Ok(u) = serde_json::from_value::<AnthropicUsage>(u.clone()) {
-                            usage_holder = Some(u);
-                        }
-                    }
-                    if let Some(model) = msg.get("model").and_then(|v| v.as_str()) {
-                        if tx_event
-                            .send(Ok(ResponseEvent::ServerModel(model.to_owned())))
-                            .await
-                            .is_err()
-                        {
-                            return;
-                        }
-                    }
+        // Rung-3 (S-WIRE-VOCAB-MAX-TEETH): exhaustive match on the typed
+        // `MessageStreamEvent` enum. The compiler enforces that every variant
+        // is handled; `MessageStreamEvent::Unknown` is the ONLY tolerant arm
+        // and it carries the original tag + raw JSON for logging.
+        match event {
+            MessageStreamEvent::MessageStart { message } => {
+                if let Some(id) = message.id.as_deref() {
+                    response_id = id.to_owned();
+                }
+                if let Some(u) = message.usage.as_ref()
+                    && let Ok(u) = serde_json::from_value::<AnthropicUsage>(u.clone())
+                {
+                    usage_holder = Some(u);
+                }
+                if let Some(model) = message.model.as_deref()
+                    && tx_event
+                        .send(Ok(ResponseEvent::ServerModel(model.to_owned())))
+                        .await
+                        .is_err()
+                {
+                    return;
                 }
                 if tx_event.send(Ok(ResponseEvent::Created)).await.is_err() {
                     return;
                 }
             }
 
-            "content_block_start" => {
-                if let (Some(index), Some(block)) = (event.index, &event.content_block) {
-                    if let Some(block_type) = block.get("type").and_then(|v| v.as_str()) {
-                        match block_type {
-                            "text" => {
-                                tracker.blocks.insert(
-                                    index,
-                                    BlockState::Text {
-                                        text: String::new(),
-                                    },
-                                );
-                                let item = ResponseItem::Message {
-                                    id: None,
-                                    role: "assistant".to_owned(),
-                                    content: vec![],
-                                    end_turn: None,
-                                    phase: None,
-                                };
-                                if tx_event
-                                    .send(Ok(ResponseEvent::OutputItemAdded(item)))
-                                    .await
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            "thinking" => {
-                                tracker.blocks.insert(
-                                    index,
-                                    BlockState::Thinking {
-                                        thinking: String::new(),
-                                        signature: String::new(),
-                                    },
-                                );
-                                let item = ResponseItem::Reasoning {
-                                    id: String::new(),
-                                    summary: Vec::new(),
-                                    content: None,
-                                    encrypted_content: None,
-                                    raw_wire_block: None,
-                                };
-                                if tx_event
-                                    .send(Ok(ResponseEvent::OutputItemAdded(item)))
-                                    .await
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            "tool_use" => {
-                                let call_id = block
-                                    .get("id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_owned();
-                                let name = block
-                                    .get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_owned();
-                                tracker.blocks.insert(
-                                    index,
-                                    BlockState::ToolUse {
-                                        call_id: call_id.clone(),
-                                        name: name.clone(),
-                                        arguments: String::new(),
-                                    },
-                                );
-                                let item = ResponseItem::FunctionCall {
-                                    id: None,
-                                    name: name.clone(),
-                                    namespace: None,
-                                    arguments: String::new(),
-                                    call_id: call_id.clone(),
-                                };
-                                if tx_event
-                                    .send(Ok(ResponseEvent::OutputItemAdded(item)))
-                                    .await
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            "redacted_thinking" => {
-                                let data = block
-                                    .get("data")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_owned();
-                                tracker
-                                    .blocks
-                                    .insert(index, BlockState::RedactedThinking { data });
-                            }
-                            _ => {
-                                trace!("ignoring unknown content_block type: {block_type}");
-                            }
+            MessageStreamEvent::ContentBlockStart {
+                index,
+                content_block,
+            } => {
+                // Exhaustive match on the typed ContentBlock enum.
+                // Drop arms log via tracing; the Unknown arm captures
+                // the original tag + raw JSON for visibility.
+                match content_block {
+                    ContentBlock::Text { .. } => {
+                        tracker.blocks.insert(
+                            index,
+                            BlockState::Text {
+                                text: String::new(),
+                            },
+                        );
+                        let item = ResponseItem::Message {
+                            id: None,
+                            role: "assistant".to_owned(),
+                            content: vec![],
+                            phase: None,
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemAdded(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
                         }
                     }
-                }
-            }
-
-            "content_block_delta" => {
-                if let (Some(index), Some(delta)) = (event.index, &event.delta) {
-                    if let Some(delta_type) = delta.get("type").and_then(|v| v.as_str()) {
-                        match delta_type {
-                            "text_delta" => {
-                                if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
-                                    if let Some(BlockState::Text { text: acc, .. }) =
-                                        tracker.blocks.get_mut(&index)
-                                    {
-                                        acc.push_str(text);
-                                        if tx_event
-                                            .send(Ok(ResponseEvent::OutputTextDelta(
-                                                text.to_owned(),
-                                            )))
-                                            .await
-                                            .is_err()
-                                        {
-                                            return;
-                                        }
-                                    } else {
-                                        trace!(
-                                            "text_delta for untracked block index {index}, ignoring"
-                                        );
-                                    }
-                                }
-                            }
-                            "thinking_delta" => {
-                                if let Some(thinking) =
-                                    delta.get("thinking").and_then(|v| v.as_str())
-                                {
-                                    if let Some(BlockState::Thinking { thinking: acc, .. }) =
-                                        tracker.blocks.get_mut(&index)
-                                    {
-                                        acc.push_str(thinking);
-                                        if tx_event
-                                            .send(Ok(ResponseEvent::ReasoningContentDelta {
-                                                delta: thinking.to_owned(),
-                                                content_index: index as i64,
-                                            }))
-                                            .await
-                                            .is_err()
-                                        {
-                                            return;
-                                        }
-                                    } else {
-                                        trace!(
-                                            "thinking_delta for untracked block index {index}, ignoring"
-                                        );
-                                    }
-                                }
-                            }
-                            "signature_delta" => {
-                                if let Some(sig) = delta.get("signature").and_then(|v| v.as_str()) {
-                                    if let Some(BlockState::Thinking { signature: acc, .. }) =
-                                        tracker.blocks.get_mut(&index)
-                                    {
-                                        acc.push_str(sig);
-                                    }
-                                }
-                            }
-                            "input_json_delta" => {
-                                if let Some(partial) =
-                                    delta.get("partial_json").and_then(|v| v.as_str())
-                                {
-                                    if let Some(BlockState::ToolUse { arguments: acc, .. }) =
-                                        tracker.blocks.get_mut(&index)
-                                    {
-                                        acc.push_str(partial);
-                                    }
-                                }
-                            }
-                            _ => {
-                                trace!("ignoring unknown delta type: {delta_type}");
-                            }
+                    ContentBlock::Thinking { .. } => {
+                        tracker.blocks.insert(
+                            index,
+                            BlockState::Thinking {
+                                thinking: String::new(),
+                                signature: String::new(),
+                            },
+                        );
+                        let item = ResponseItem::Reasoning {
+                            id: None,
+                            summary: Vec::new(),
+                            content: None,
+                            encrypted_content: None,
+                            internal_chat_message_metadata_passthrough: None,
+                            raw_wire_block: None,
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemAdded(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
                         }
                     }
-                }
-            }
-
-            "content_block_stop" => {
-                if let Some(index) = event.index {
-                    match tracker.blocks.remove(&index) {
-                        Some(BlockState::ToolUse {
-                            call_id,
-                            name,
-                            arguments,
-                        }) => {
-                            // S-004: Detect truncated tool call arguments.
-                            // If the provider silently truncated output, the JSON
-                            // will be incomplete. Flag it so message_stop can
-                            // override stop_reason to "max_tokens" for retry.
-                            if !arguments.is_empty()
-                                && serde_json::from_str::<serde_json::Value>(&arguments).is_err()
-                            {
-                                warn!(
-                                    call_id = %call_id,
-                                    name = %name,
-                                    args_len = arguments.len(),
-                                    "truncated tool_use arguments detected (invalid JSON)"
-                                );
-                                tool_use_truncated = true;
-                            }
-                            let item = ResponseItem::FunctionCall {
-                                id: None,
-                                name,
-                                namespace: None,
-                                arguments,
-                                call_id,
-                            };
-                            if tx_event
-                                .send(Ok(ResponseEvent::OutputItemDone(item)))
-                                .await
-                                .is_err()
-                            {
-                                return;
-                            }
+                    ContentBlock::ToolUse { id, name, .. } => {
+                        tracker.blocks.insert(
+                            index,
+                            BlockState::ToolUse {
+                                call_id: id.clone(),
+                                name: name.clone(),
+                                arguments: String::new(),
+                            },
+                        );
+                        let (namespace, bare_name) = parse_flat_mcp_tool_name(&name);
+                        let item = ResponseItem::FunctionCall {
+                            id: None,
+                            name: bare_name,
+                            namespace,
+                            arguments: String::new(),
+                            call_id: id.clone(),
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemAdded(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
                         }
-                        Some(BlockState::Text { text }) => {
-                            let item = ResponseItem::Message {
-                                id: None,
-                                role: "assistant".to_owned(),
-                                content: vec![ContentItem::OutputText { text }],
-                                end_turn: None,
-                                phase: None,
-                            };
-                            if tx_event
-                                .send(Ok(ResponseEvent::OutputItemDone(item)))
-                                .await
-                                .is_err()
-                            {
-                                return;
-                            }
-                        }
-                        Some(BlockState::Thinking {
-                            thinking,
-                            signature,
-                        }) => {
-                            // Build the raw wire block for byte-identical replay.
-                            // This is the exact JSON block Anthropic expects when
-                            // the conversation history is sent back.
-                            let raw_block = if signature.is_empty() {
-                                serde_json::json!({
-                                    "type": "thinking",
-                                    "thinking": &thinking,
-                                })
+                    }
+                    ContentBlock::RedactedThinking { data } => {
+                        tracker
+                            .blocks
+                            .insert(index, BlockState::RedactedThinking { data });
+                    }
+                    ContentBlock::ServerToolUse { id, name, input } => {
+                        if name == "web_search" {
+                            let arguments = if input.is_object() && input.as_object().is_some_and(|o| o.is_empty()) {
+                                String::new()
                             } else {
-                                serde_json::json!({
-                                    "type": "thinking",
-                                    "thinking": &thinking,
-                                    "signature": &signature,
-                                })
+                                serde_json::to_string(&input).unwrap_or_default()
                             };
-                            let item = ResponseItem::Reasoning {
-                                id: String::new(),
-                                summary: vec![
-                                    codex_protocol::models::ReasoningItemReasoningSummary::SummaryText {
-                                        text: thinking,
-                                    },
-                                ],
-                                content: None,
-                                encrypted_content: if signature.is_empty() {
-                                    None
-                                } else {
-                                    Some(signature)
+                            tracker.blocks.insert(
+                                index,
+                                BlockState::ServerToolUse {
+                                    id: id.clone(),
+                                    name: name.clone(),
+                                    arguments,
                                 },
-                                raw_wire_block: Some(raw_block),
+                            );
+                            let item = ResponseItem::WebSearchCall {
+                                id: Some(id.clone()),
+                                status: Some("in_progress".to_string()),
+                                action: None,
                             };
                             if tx_event
-                                .send(Ok(ResponseEvent::OutputItemDone(item)))
+                                .send(Ok(ResponseEvent::OutputItemAdded(item)))
                                 .await
                                 .is_err()
                             {
                                 return;
                             }
+                        } else {
+                            trace!(
+                                "intentional drop: server_tool_use name={name} (wire_vocab::CONTENT_BLOCKS)"
+                            );
                         }
-                        Some(BlockState::RedactedThinking { data }) => {
-                            // Build raw wire block for byte-identical replay.
-                            let raw_block = serde_json::json!({
-                                "type": "redacted_thinking",
-                                "data": &data,
-                            });
-                            // Sentinel prefix "\0REDACTED\0" distinguishes redacted thinking
-                            // from real Anthropic signatures (which are base64 and cannot
-                            // contain null bytes). Consumed by messages_wire.rs translator.
-                            let item = ResponseItem::Reasoning {
-                                id: String::new(),
-                                summary: Vec::new(),
-                                content: None,
-                                encrypted_content: Some(format!("\0REDACTED\0{data}")),
-                                raw_wire_block: Some(raw_block),
-                            };
+                    }
+                    ContentBlock::WebSearchToolResult { tool_use_id, .. } => {
+                        tracker.blocks.insert(
+                            index,
+                            BlockState::WebSearchToolResult {
+                                tool_use_id: tool_use_id.clone(),
+                            },
+                        );
+                    }
+                    ContentBlock::CodeExecutionToolUse { .. } => {
+                        // Documented intentional drop — policy lives in
+                        // `wire_vocab::CONTENT_BLOCKS` (server-side beta).
+                        trace!(
+                            "intentional drop: code_execution_tool_use (wire_vocab::CONTENT_BLOCKS)"
+                        );
+                    }
+                    ContentBlock::Unknown { tag, raw } => {
+                        warn!(
+                            block_type = %tag,
+                            raw = ?raw,
+                            "Anthropic content_block.type is NOT in known wire vocabulary \
+                             — routed to ContentBlock::Unknown. Add a variant in \
+                             messages_wire_types.rs and a parser arm here, or document a \
+                             drop policy. See cli-ops/sortie-board/xli-v3/.",
+                        );
+                    }
+                }
+            }
+
+            MessageStreamEvent::ContentBlockDelta { index, delta } => {
+                // Exhaustive match on the typed ContentBlockDelta enum.
+                match delta {
+                    ContentBlockDelta::TextDelta { text } => {
+                        if let Some(BlockState::Text { text: acc, .. }) =
+                            tracker.blocks.get_mut(&index)
+                        {
+                            acc.push_str(&text);
                             if tx_event
-                                .send(Ok(ResponseEvent::OutputItemDone(item)))
+                                .send(Ok(ResponseEvent::OutputTextDelta(text)))
                                 .await
                                 .is_err()
                             {
                                 return;
                             }
+                        } else {
+                            trace!("text_delta for untracked block index {index}, ignoring");
                         }
-                        None => {}
+                    }
+                    ContentBlockDelta::ThinkingDelta { thinking } => {
+                        if let Some(BlockState::Thinking { thinking: acc, .. }) =
+                            tracker.blocks.get_mut(&index)
+                        {
+                            acc.push_str(&thinking);
+                            if tx_event
+                                .send(Ok(ResponseEvent::ReasoningContentDelta {
+                                    delta: thinking,
+                                    content_index: index as i64,
+                                }))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                        } else {
+                            trace!("thinking_delta for untracked block index {index}, ignoring");
+                        }
+                    }
+                    ContentBlockDelta::SignatureDelta { signature } => {
+                        if let Some(BlockState::Thinking { signature: acc, .. }) =
+                            tracker.blocks.get_mut(&index)
+                        {
+                            acc.push_str(&signature);
+                        }
+                    }
+                    ContentBlockDelta::InputJsonDelta { partial_json } => {
+                        if let Some(BlockState::ToolUse { call_id, arguments: acc, .. }) =
+                            tracker.blocks.get_mut(&index)
+                        {
+                            acc.push_str(&partial_json);
+                            if tx_event
+                                .send(Ok(ResponseEvent::ToolCallInputDelta {
+                                    item_id: call_id.clone(),
+                                    call_id: Some(call_id.clone()),
+                                    delta: partial_json,
+                                }))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                        } else if let Some(BlockState::ServerToolUse { arguments: acc, .. }) =
+                            tracker.blocks.get_mut(&index)
+                        {
+                            acc.push_str(&partial_json);
+                        }
+                    }
+                    ContentBlockDelta::CitationsDelta { .. } => {
+                        // Documented intentional drop — policy lives in
+                        // `wire_vocab::CONTENT_BLOCK_DELTAS`.
+                        trace!(
+                            "intentional drop: citations_delta (wire_vocab::CONTENT_BLOCK_DELTAS)"
+                        );
+                    }
+                    ContentBlockDelta::Unknown { tag, raw } => {
+                        warn!(
+                            delta_type = %tag,
+                            raw = ?raw,
+                            "Anthropic delta.type is NOT in known wire vocabulary \
+                             — routed to ContentBlockDelta::Unknown. Add a variant in \
+                             messages_wire_types.rs and a parser arm here, or document a \
+                             drop policy. See cli-ops/sortie-board/xli-v3/.",
+                        );
                     }
                 }
             }
 
-            "message_delta" => {
-                if let Some(delta) = &event.delta {
-                    if let Some(reason) = delta.get("stop_reason").and_then(|r| r.as_str()) {
-                        trace!("stop_reason: {reason}");
-                        stop_reason = Some(reason.to_owned());
+            MessageStreamEvent::ContentBlockStop { index } => {
+                match tracker.blocks.remove(&index) {
+                    Some(BlockState::ServerToolUse {
+                        id,
+                        name,
+                        arguments,
+                    }) if name == "web_search" => {
+                        let item = ResponseItem::WebSearchCall {
+                            id: Some(id),
+                            status: Some("completed".to_string()),
+                            action: web_search_action_from_arguments(&arguments),
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemDone(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
                     }
-                }
-                if let Some(usage_val) = &event.usage
-                    && let Ok(u) = serde_json::from_value::<AnthropicUsage>(usage_val.clone())
-                {
-                    usage_holder = Some(merge_usage(usage_holder, u));
-                }
-            }
-
-            "message_stop" => {
-                // S-004: Check for any tool_use blocks still in the tracker
-                // (blocks that never received content_block_stop — hard truncation).
-                for (_, state) in &tracker.blocks {
-                    if let BlockState::ToolUse {
+                    Some(BlockState::ServerToolUse { name, .. }) => {
+                        trace!(
+                            "intentional drop on stop: server_tool_use name={name} (wire_vocab::CONTENT_BLOCKS)"
+                        );
+                    }
+                    Some(BlockState::WebSearchToolResult { .. }) => {
+                        // Result block follows server_tool_use; IR emitted on server_tool_use stop.
+                    }
+                    Some(BlockState::ToolUse {
                         call_id,
                         name,
                         arguments,
-                    } = state
-                    {
+                    }) => {
+                        // S-004: Detect truncated tool call arguments.
+                        // If the provider silently truncated output, the JSON
+                        // will be incomplete. Flag it so message_stop can
+                        // override stop_reason to "max_tokens" for retry.
                         if !arguments.is_empty()
-                            && serde_json::from_str::<serde_json::Value>(arguments).is_err()
+                            && serde_json::from_str::<serde_json::Value>(&arguments).is_err()
                         {
                             warn!(
                                 call_id = %call_id,
                                 name = %name,
                                 args_len = arguments.len(),
-                                "in-flight tool_use block has truncated arguments at message_stop"
+                                "truncated tool_use arguments detected (invalid JSON)"
                             );
                             tool_use_truncated = true;
                         }
+                        let (namespace, bare_name) = parse_flat_mcp_tool_name(&name);
+                        let item = ResponseItem::FunctionCall {
+                            id: None,
+                            name: bare_name,
+                            namespace,
+                            arguments,
+                            call_id,
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemDone(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Some(BlockState::Text { text }) => {
+                        let item = ResponseItem::Message {
+                            id: None,
+                            role: "assistant".to_owned(),
+                            content: vec![ContentItem::OutputText { text }],
+                            phase: None,
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemDone(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Some(BlockState::Thinking {
+                        thinking,
+                        signature,
+                    }) => {
+                        // Build the raw wire block for byte-identical replay.
+                        // This is the exact JSON block Anthropic expects when
+                        // the conversation history is sent back.
+                        // S-OPUS47-EMPTY-THINKING: drop signed-but-empty
+                        // thinking blocks. Opus 4.7 adaptive thinking
+                        // (display=summarized/omitted), notably on the
+                        // Vertex route, streams a signature_delta but
+                        // withholds every thinking_delta. Persisting a
+                        // raw_wire_block of shape
+                        //   { type: "thinking", thinking: "", signature: <real> }
+                        // and replaying it on the next turn fails Anthropic's
+                        // verifier with `messages.N.content.M: thinking
+                        // blocks in the latest assistant message cannot be
+                        // modified` because the signature was computed over
+                        // content the proxy never returned. Anthropic
+                        // regenerates the thought on the next turn, so
+                        // replay is not required for correctness.
+                        if thinking.is_empty() {
+                            if !signature.is_empty() {
+                                tracing::debug!(
+                                    "dropping empty-text signed thinking block (opus-4.7 adaptive/summarized; signature would fail verifier on replay)"
+                                );
+                            }
+                            continue;
+                        }
+                        let raw_block = if signature.is_empty() {
+                            serde_json::json!({
+                                "type": "thinking",
+                                "thinking": &thinking,
+                            })
+                        } else {
+                            serde_json::json!({
+                                "type": "thinking",
+                                "thinking": &thinking,
+                                "signature": &signature,
+                            })
+                        };
+                        let item = ResponseItem::Reasoning {
+                            id: None,
+                            summary: vec![
+                                codex_protocol::models::ReasoningItemReasoningSummary::SummaryText {
+                                    text: thinking,
+                                },
+                            ],
+                            content: None,
+                            encrypted_content: if signature.is_empty() {
+                                None
+                            } else {
+                                Some(signature)
+                            },
+                            internal_chat_message_metadata_passthrough: None,
+                            raw_wire_block: Some(raw_block),
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemDone(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Some(BlockState::RedactedThinking { data }) => {
+                        // Build raw wire block for byte-identical replay.
+                        let raw_block = serde_json::json!({
+                            "type": "redacted_thinking",
+                            "data": &data,
+                        });
+                        // Sentinel prefix "\0REDACTED\0" distinguishes redacted thinking
+                        // from real Anthropic signatures (which are base64 and cannot
+                        // contain null bytes). Consumed by messages_wire.rs translator.
+                        let item = ResponseItem::Reasoning {
+                            id: None,
+                            summary: Vec::new(),
+                            content: None,
+                            encrypted_content: Some(format!("\0REDACTED\0{data}")),
+                            internal_chat_message_metadata_passthrough: None,
+                            raw_wire_block: Some(raw_block),
+                        };
+                        if tx_event
+                            .send(Ok(ResponseEvent::OutputItemDone(item)))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    None => {}
+                }
+            }
+
+            MessageStreamEvent::MessageDelta { delta, usage } => {
+                if let Some(reason) = delta.stop_reason.as_ref() {
+                    let reason_str = reason.as_wire_str();
+                    trace!("stop_reason: {reason_str}");
+                    stop_reason = Some(reason_str.to_owned());
+                }
+                if let Some(usage_val) = usage
+                    && let Ok(u) = serde_json::from_value::<AnthropicUsage>(usage_val)
+                {
+                    usage_holder = Some(merge_usage(usage_holder, u));
+                }
+            }
+
+            MessageStreamEvent::MessageStop => {
+                // S-004: Check for any tool_use blocks still in the tracker
+                // (blocks that never received content_block_stop — hard truncation).
+                for state in tracker.blocks.values() {
+                    if let BlockState::ToolUse {
+                        call_id,
+                        name,
+                        arguments,
+                    } = state
+                        && !arguments.is_empty()
+                        && serde_json::from_str::<serde_json::Value>(arguments).is_err()
+                    {
+                        warn!(
+                            call_id = %call_id,
+                            name = %name,
+                            args_len = arguments.len(),
+                            "in-flight tool_use block has truncated arguments at message_stop"
+                        );
+                        tool_use_truncated = true;
                     }
                 }
 
                 // S-004: If any tool_use block had invalid JSON arguments,
                 // override stop_reason to "max_tokens" so the harness retries.
                 if tool_use_truncated {
-                    warn!("overriding stop_reason to max_tokens due to truncated tool_use arguments");
+                    warn!(
+                        "overriding stop_reason to max_tokens due to truncated tool_use arguments"
+                    );
                     stop_reason = Some("max_tokens".to_owned());
                 }
 
-                let token_usage = usage_holder.map(|u| {
-                    let input = u.input_tokens.unwrap_or(0);
-                    let output = u.output_tokens.unwrap_or(0);
-                    let cached = u.cache_read_input_tokens.unwrap_or(0);
-                    let cache_created = u.cache_creation_input_tokens.unwrap_or(0);
-                    TokenUsage {
-                        input_tokens: input,
-                        cached_input_tokens: cached,
-                        cache_creation_input_tokens: cache_created,
-                        output_tokens: output,
-                        // Anthropic does not currently expose thinking token counts.
-                        reasoning_output_tokens: 0,
-                        // Anthropic reports cache_read_input_tokens separately from
-                        // input_tokens, so total = input + cached + output.
-                        total_tokens: input + cached + output,
-                    }
-                });
-                if tx_event
+                let token_usage = usage_holder.map(|u| normalize_token_usage(u.to_raw_usage()));
+                let end_turn = if stop_reason.as_deref() == Some("end_turn") {
+                    Some(true)
+                } else {
+                    None
+                };
+                let _ = tx_event
                     .send(Ok(ResponseEvent::Completed {
+                        end_turn,
                         stop_reason: stop_reason.take(),
                         response_id: response_id.clone(),
                         token_usage,
                     }))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
+                    .await;
                 return;
             }
 
-            "ping" => {}
+            MessageStreamEvent::Ping => {}
 
-            "error" => {
-                let message = event
-                    .error
-                    .as_ref()
-                    .and_then(|e| e.get("message"))
-                    .and_then(|m| m.as_str())
+            MessageStreamEvent::Error { error } => {
+                let message = error
+                    .message
+                    .as_deref()
                     .unwrap_or("unknown anthropic error");
+                let error_type = error.error_type.as_deref().unwrap_or("");
 
-                let error_type = event
-                    .error
-                    .as_ref()
-                    .and_then(|e| e.get("type"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
-
-                let api_error = match error_type {
-                    "overloaded_error" => ApiError::ServerOverloaded,
-                    "rate_limit_error" => ApiError::RateLimit(message.to_owned()),
-                    _ => ApiError::Stream(format!("Anthropic API error: {message}")),
+                // S-ERROR-TYPED: classify into a typed kind (rung-3 pattern) so
+                // the mapping is exhaustive and unknown error types are visible
+                // (warn!) rather than silently collapsing to a generic error.
+                let api_error = match AnthropicErrorKind::from_wire(error_type) {
+                    AnthropicErrorKind::Overloaded => ApiError::ServerOverloaded,
+                    AnthropicErrorKind::RateLimit => ApiError::RateLimit(message.to_owned()),
+                    AnthropicErrorKind::Unknown(raw) => {
+                        warn!(
+                            error_type = %raw,
+                            "unmodeled Anthropic error.type; mapping to generic stream error"
+                        );
+                        ApiError::Stream(format!("Anthropic API error: {message}"))
+                    }
                 };
 
                 let _ = tx_event.send(Err(api_error)).await;
                 return;
             }
 
-            _ => {
-                trace!("ignoring unknown /messages SSE event type: {}", event.kind);
+            MessageStreamEvent::Unknown { tag, raw } => {
+                // The custom Deserialize already logged a warn! with the tag.
+                // Re-log here with raw payload so the parser-side context shows
+                // up in a single grep alongside the Deserialize-side warn.
+                warn!(
+                    wire_type = %tag,
+                    raw = ?raw,
+                    "unhandled Anthropic SSE event in parser; dropping",
+                );
             }
         }
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
+struct AnthropicOutputTokensDetails {
+    thinking_tokens: Option<i64>,
+}
+
+/// TTL-band cache write breakdown (`Usage.cache_creation` on the wire).
+#[derive(Debug, Deserialize, Default, Clone)]
+struct AnthropicCacheCreation {
+    ephemeral_5m_input_tokens: Option<i64>,
+    ephemeral_1h_input_tokens: Option<i64>,
+}
+
+/// Server-side tool request counters on the usage object (deserialize-only for
+/// now — projection to protocol `TokenUsage` is S-SERVER-TOOL-USAGE).
+#[derive(Debug, Deserialize, Default, Clone)]
+struct AnthropicServerToolUsage {
+    web_search_requests: Option<i64>,
+    web_fetch_requests: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
 struct AnthropicUsage {
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
     cache_read_input_tokens: Option<i64>,
     cache_creation_input_tokens: Option<i64>,
+    #[serde(default)]
+    cache_creation: Option<AnthropicCacheCreation>,
+    #[serde(default)]
+    output_tokens_details: Option<AnthropicOutputTokensDetails>,
+    #[serde(default)]
+    server_tool_use: Option<AnthropicServerToolUsage>,
+}
+
+impl AnthropicUsage {
+    fn cache_creation_tokens(&self) -> i64 {
+        if let Some(n) = self.cache_creation_input_tokens {
+            return n.max(0);
+        }
+        self.cache_creation
+            .as_ref()
+            .map(|c| {
+                c.ephemeral_5m_input_tokens.unwrap_or(0).max(0)
+                    + c.ephemeral_1h_input_tokens.unwrap_or(0).max(0)
+            })
+            .unwrap_or(0)
+    }
+
+    fn reasoning_output_tokens(&self) -> i64 {
+        self.output_tokens_details
+            .as_ref()
+            .and_then(|d| d.thinking_tokens)
+            .unwrap_or(0)
+            .max(0)
+    }
+
+    fn to_raw_usage(&self) -> RawUsage {
+        let server = self.server_tool_use.as_ref();
+        RawUsage {
+            web_search_requests: server
+                .and_then(|s| s.web_search_requests)
+                .unwrap_or(0)
+                .max(0),
+            web_fetch_requests: server
+                .and_then(|s| s.web_fetch_requests)
+                .unwrap_or(0)
+                .max(0),
+            ..RawUsage::cache_exclusive_prompt(
+                self.input_tokens.unwrap_or(0),
+                self.cache_read_input_tokens.unwrap_or(0),
+                self.cache_creation_tokens(),
+                self.output_tokens.unwrap_or(0),
+                self.reasoning_output_tokens(),
+            )
+        }
+    }
+}
+
+fn web_search_action_from_arguments(arguments: &str) -> Option<WebSearchAction> {
+    let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
+    let query = value
+        .get("query")
+        .and_then(|q| q.as_str())
+        .map(str::to_owned);
+    if query.is_none() {
+        return None;
+    }
+    Some(WebSearchAction::Search {
+        query,
+        queries: None,
+    })
 }
 
 fn merge_usage(existing: Option<AnthropicUsage>, new: AnthropicUsage) -> AnthropicUsage {
@@ -602,7 +891,114 @@ fn merge_usage(existing: Option<AnthropicUsage>, new: AnthropicUsage) -> Anthrop
             cache_creation_input_tokens: new
                 .cache_creation_input_tokens
                 .or(prev.cache_creation_input_tokens),
+            cache_creation: merge_cache_creation(prev.cache_creation, new.cache_creation),
+            output_tokens_details: merge_output_tokens_details(
+                prev.output_tokens_details,
+                new.output_tokens_details,
+            ),
+            server_tool_use: merge_server_tool_use(prev.server_tool_use, new.server_tool_use),
         },
+    }
+}
+
+fn merge_cache_creation(
+    prev: Option<AnthropicCacheCreation>,
+    new: Option<AnthropicCacheCreation>,
+) -> Option<AnthropicCacheCreation> {
+    match (prev, new) {
+        (None, n) => n,
+        (Some(p), None) => Some(p),
+        (Some(p), Some(n)) => Some(AnthropicCacheCreation {
+            ephemeral_5m_input_tokens: n
+                .ephemeral_5m_input_tokens
+                .or(p.ephemeral_5m_input_tokens),
+            ephemeral_1h_input_tokens: n
+                .ephemeral_1h_input_tokens
+                .or(p.ephemeral_1h_input_tokens),
+        }),
+    }
+}
+
+fn merge_output_tokens_details(
+    prev: Option<AnthropicOutputTokensDetails>,
+    new: Option<AnthropicOutputTokensDetails>,
+) -> Option<AnthropicOutputTokensDetails> {
+    match (prev, new) {
+        (None, n) => n,
+        (Some(p), None) => Some(p),
+        (Some(p), Some(n)) => Some(AnthropicOutputTokensDetails {
+            thinking_tokens: n.thinking_tokens.or(p.thinking_tokens),
+        }),
+    }
+}
+
+fn merge_server_tool_use(
+    prev: Option<AnthropicServerToolUsage>,
+    new: Option<AnthropicServerToolUsage>,
+) -> Option<AnthropicServerToolUsage> {
+    match (prev, new) {
+        (None, n) => n,
+        (Some(p), None) => Some(p),
+        (Some(p), Some(n)) => Some(AnthropicServerToolUsage {
+            web_search_requests: n.web_search_requests.or(p.web_search_requests),
+            web_fetch_requests: n.web_fetch_requests.or(p.web_fetch_requests),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod anthropic_usage_wire_tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_cache_creation_ttl_breakdown() {
+        let v = serde_json::json!({
+            "input_tokens": 80,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 10,
+            "cache_creation": {
+                "ephemeral_5m_input_tokens": 15,
+                "ephemeral_1h_input_tokens": 5
+            }
+        });
+        let u: AnthropicUsage = serde_json::from_value(v).expect("usage json");
+        let raw = u.to_raw_usage();
+        assert_eq!(raw.cache_read, 10);
+        assert_eq!(raw.cache_creation, 20);
+        assert_eq!(raw.api_input, 80);
+    }
+
+    #[test]
+    fn message_start_event_preserves_usage_with_cache_creation_ttl() {
+        use crate::sse::messages_wire_types::MessageStreamEvent;
+        let line = serde_json::json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_ttl",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": "claude-sonnet-4.6",
+                "usage": {
+                    "input_tokens": 80,
+                    "output_tokens": 0,
+                    "cache_read_input_tokens": 10,
+                    "cache_creation": {
+                        "ephemeral_5m_input_tokens": 15,
+                        "ephemeral_1h_input_tokens": 5
+                    }
+                }
+            }
+        });
+        let event: MessageStreamEvent =
+            serde_json::from_value(line).expect("message_start event");
+        let MessageStreamEvent::MessageStart { message } = event else {
+            panic!("expected message_start");
+        };
+        let usage_val = message.usage.expect("usage value");
+        let u: AnthropicUsage =
+            serde_json::from_value(usage_val).expect("anthropic usage");
+        assert_eq!(u.cache_creation_tokens(), 20);
     }
 }
 
@@ -611,6 +1007,90 @@ mod tests {
     use super::*;
     use futures::StreamExt;
     use tokio_util::io::ReaderStream;
+
+    /// Rung-2/3 invariant: each `WirePolicy::Handled` entry in the
+    /// curated `wire_vocab` tables must correspond to an actual variant
+    /// in the typed enums *and* an arm in the parser.
+    ///
+    /// With rung-3 (S-WIRE-VOCAB-MAX-TEETH), the *enum exhaustiveness*
+    /// is the load-bearing guarantee — `match content_block { ... }`
+    /// will not compile if a `ContentBlock` variant is missing. This
+    /// test is a belt-and-suspenders check that the documentation table
+    /// is kept in sync with the typed-variant names.
+    ///
+    /// Mapping table:
+    ///   wire-vocab tag (snake_case) → enum variant (CamelCase identifier
+    ///   exactly as written in the parser match arm).
+    #[test]
+    fn wire_vocab_consistent_with_parser() {
+        let source = include_str!("messages.rs");
+
+        // Snake-case → CamelCase variant identifier the parser uses.
+        let camel = |snake: &str| -> String {
+            snake
+                .split('_')
+                .map(|part| {
+                    let mut cs = part.chars();
+                    match cs.next() {
+                        Some(c) => c.to_uppercase().collect::<String>() + cs.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect()
+        };
+
+        let check_handled =
+            |entries: &[(&str, wire_vocab::WirePolicy)], enum_name: &str, context: &str| {
+                for (tag, policy) in entries {
+                    if !matches!(policy, wire_vocab::WirePolicy::Handled) {
+                        continue;
+                    }
+                    let variant = camel(tag);
+                    let pat = format!("{enum_name}::{variant}");
+                    assert!(
+                        source.contains(&pat),
+                        "wire_vocab[{context}] entry `{tag}` is marked Handled but the \
+                     parser has no `{pat}` arm in messages.rs.  Either:\n\
+                       - add a parser arm for the typed variant, or\n\
+                       - change the table entry to DropExplicit(\"<reason>\")",
+                    );
+                }
+            };
+
+        check_handled(
+            wire_vocab::STREAM_EVENTS,
+            "MessageStreamEvent",
+            "STREAM_EVENTS",
+        );
+        check_handled(wire_vocab::CONTENT_BLOCKS, "ContentBlock", "CONTENT_BLOCKS");
+        check_handled(
+            wire_vocab::CONTENT_BLOCK_DELTAS,
+            "ContentBlockDelta",
+            "CONTENT_BLOCK_DELTAS",
+        );
+    }
+
+    /// Drop entries must be NON-EMPTY rationales.  This stops a future
+    /// "I'll just shut up the warn by adding it to the table" drive-by
+    /// that erases institutional knowledge of WHY we drop a wire type.
+    #[test]
+    fn wire_vocab_drop_entries_have_rationale() {
+        let all = [
+            wire_vocab::STREAM_EVENTS,
+            wire_vocab::CONTENT_BLOCKS,
+            wire_vocab::CONTENT_BLOCK_DELTAS,
+        ];
+        for table in all.iter() {
+            for (tag, policy) in *table {
+                if let wire_vocab::WirePolicy::DropExplicit(reason) = policy {
+                    assert!(
+                        !reason.trim().is_empty(),
+                        "wire_vocab `{tag}` is DropExplicit but rationale is empty"
+                    );
+                }
+            }
+        }
+    }
 
     fn fixture_to_byte_stream(lines: &[&str]) -> ByteStream {
         let mut content = String::new();
@@ -785,6 +1265,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_unknown_error_type_maps_to_generic_stream() {
+        // S-ERROR-TYPED: an unmodeled Anthropic error.type must surface as a
+        // generic stream error (safe default) rather than be dropped.
+        let fixture = vec![
+            r#"data: {"type":"error","error":{"type":"api_error","message":"Internal"}}"#,
+            "",
+        ];
+
+        let stream = fixture_to_byte_stream(&fixture);
+        let response_stream = spawn_messages_stream(stream, Duration::from_secs(30));
+        let mut rx = response_stream.rx_event;
+
+        let mut found_error = false;
+        while let Some(event) = rx.recv().await {
+            if let Err(ApiError::Stream(msg)) = event {
+                assert!(msg.contains("Internal"), "message should be preserved");
+                found_error = true;
+            }
+        }
+        assert!(found_error);
+    }
+
+    #[tokio::test]
     async fn test_thinking_block_emits_reasoning_with_signature() {
         let fixture = vec![
             "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_789\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4.6\",\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}",
@@ -893,13 +1396,11 @@ mod tests {
                 encrypted_content,
                 ..
             })) = event
+                && let Some(ec) = encrypted_content
+                && ec.starts_with("\0REDACTED\0")
             {
-                if let Some(ec) = encrypted_content {
-                    if ec.starts_with("\0REDACTED\0") {
-                        assert_eq!(ec, "\0REDACTED\0opaque_encrypted_data_xyz");
-                        found_redacted = true;
-                    }
-                }
+                assert_eq!(ec, "\0REDACTED\0opaque_encrypted_data_xyz");
+                found_redacted = true;
             }
         }
         assert!(found_redacted, "should emit redacted thinking as Reasoning");
@@ -999,11 +1500,14 @@ mod tests {
         for event in &events {
             if let Ok(ResponseEvent::Completed { token_usage, .. }) = event {
                 let usage = token_usage.as_ref().expect("usage should be present");
-                assert_eq!(usage.input_tokens, 100);
+                // input normalized to cache-inclusive: api 100 + cache_read 50
+                // + cache_creation 25 = 175 (S-USAGE-TYPED / F1).
+                assert_eq!(usage.input_tokens, 175);
                 assert_eq!(usage.output_tokens, 42);
                 assert_eq!(usage.cached_input_tokens, 50);
                 assert_eq!(usage.cache_creation_input_tokens, 25);
-                assert_eq!(usage.total_tokens, 192);
+                // total = input + output = 175 + 42 = 217.
+                assert_eq!(usage.total_tokens, 217);
                 found_usage = true;
             }
         }
@@ -1085,6 +1589,50 @@ mod tests {
                 .any(|e| matches!(e, Ok(ResponseEvent::Completed { .. }))),
             "should complete despite unknown events"
         );
+    }
+
+    /// Rung-3 (S-WIRE-VOCAB-MAX-TEETH): an unknown SSE event type must
+    /// parse into `MessageStreamEvent::Unknown` with the original tag
+    /// and raw JSON preserved — NOT silently dropped via a wildcard arm.
+    #[test]
+    fn unknown_sse_event_routes_to_typed_unknown() {
+        let json = r#"{"type":"future_stream_event","extra":{"x":1}}"#;
+        let event: MessageStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            MessageStreamEvent::Unknown { tag, raw } => {
+                assert_eq!(tag, "future_stream_event");
+                assert_eq!(raw["extra"]["x"], 1);
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    /// Rung-3: unknown content_block.type routes to ContentBlock::Unknown,
+    /// preserving the tag for visibility.
+    #[test]
+    fn unknown_content_block_routes_to_typed_unknown() {
+        let json = r#"{"type":"future_block","id":"x","payload":42}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown { tag, raw } => {
+                assert_eq!(tag, "future_block");
+                assert_eq!(raw["payload"], 42);
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    /// Rung-3: unknown delta.type routes to ContentBlockDelta::Unknown.
+    #[test]
+    fn unknown_content_block_delta_routes_to_typed_unknown() {
+        let json = r#"{"type":"future_delta","payload":"x"}"#;
+        let delta: ContentBlockDelta = serde_json::from_str(json).unwrap();
+        match delta {
+            ContentBlockDelta::Unknown { tag, .. } => {
+                assert_eq!(tag, "future_delta");
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1282,15 +1830,123 @@ mod tests {
         for event in &events {
             if let Ok(ResponseEvent::Completed { token_usage, .. }) = event {
                 let usage = token_usage.as_ref().expect("should have token usage");
-                assert_eq!(usage.input_tokens, 100);
+                // input normalized to cache-inclusive: api 100 + cache_read 50
+                // + cache_creation 25 = 175 (S-USAGE-TYPED / F1).
+                assert_eq!(usage.input_tokens, 175);
                 assert_eq!(usage.cached_input_tokens, 50);
                 assert_eq!(usage.cache_creation_input_tokens, 25);
                 assert_eq!(usage.output_tokens, 10);
-                // total = input + cached + output = 100 + 50 + 10 = 160
+                // total = input + output = 175 + 10 = 185 (cache folded into input).
                 assert_eq!(
-                    usage.total_tokens, 160,
-                    "total must include cache_read_input_tokens"
+                    usage.total_tokens, 185,
+                    "total must include cache_read and cache_creation via input"
                 );
+                return;
+            }
+        }
+        panic!("did not find Completed event");
+    }
+
+    #[tokio::test]
+    async fn test_usage_projects_thinking_tokens_from_output_tokens_details() {
+        let fixture = vec![
+            r#"data: {"type":"message_start","message":{"id":"msg_think","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.6","usage":{"input_tokens":50,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#,
+            "",
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}"#,
+            "",
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            "",
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":120,"output_tokens_details":{"thinking_tokens":45}}}"#,
+            "",
+            r#"data: {"type":"message_stop"}"#,
+            "",
+        ];
+
+        let stream = fixture_to_byte_stream(&fixture);
+        let response_stream = spawn_messages_stream(stream, Duration::from_secs(30));
+        let mut rx = response_stream.rx_event;
+
+        while let Some(event) = rx.recv().await {
+            if let Ok(ResponseEvent::Completed { token_usage, .. }) = event {
+                let usage = token_usage.expect("usage");
+                assert_eq!(usage.input_tokens, 50);
+                assert_eq!(usage.output_tokens, 120);
+                assert_eq!(usage.reasoning_output_tokens, 45);
+                assert_eq!(usage.total_tokens, 170);
+                return;
+            }
+        }
+        panic!("did not find Completed event");
+    }
+
+    #[tokio::test]
+    async fn test_usage_cache_creation_ttl_breakdown_when_total_absent() {
+        let fixture = vec![
+            r#"data: {"type":"message_start","message":{"id":"msg_ttl","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.6","usage":{"input_tokens":80,"output_tokens":0,"cache_read_input_tokens":10,"cache_creation":{"ephemeral_5m_input_tokens":15,"ephemeral_1h_input_tokens":5}}}}"#,
+            "",
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}"#,
+            "",
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            "",
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":12}}"#,
+            "",
+            r#"data: {"type":"message_stop"}"#,
+            "",
+        ];
+
+        let stream = fixture_to_byte_stream(&fixture);
+        let response_stream = spawn_messages_stream(stream, Duration::from_secs(30));
+        let mut rx = response_stream.rx_event;
+
+        while let Some(event) = rx.recv().await {
+            if let Ok(ResponseEvent::Completed { token_usage, .. }) = event {
+                let usage = token_usage.expect("usage");
+                // input = 80 + cache_read 10 + cache_creation (15+5) = 110
+                assert_eq!(usage.input_tokens, 110);
+                assert_eq!(usage.cached_input_tokens, 10);
+                assert_eq!(usage.cache_creation_input_tokens, 20);
+                assert_eq!(usage.output_tokens, 12);
+                assert_eq!(usage.total_tokens, 122);
+                return;
+            }
+        }
+        panic!("did not find Completed event");
+    }
+
+    #[tokio::test]
+    async fn test_usage_projects_server_tool_use_counters() {
+        // Shape from refs/anthropic/anthropic-docs/messages-streaming.md
+        let fixture = vec![
+            r#"data: {"type":"message_start","message":{"id":"msg_srv","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.6","usage":{"input_tokens":100,"output_tokens":0}}}"#,
+            "",
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            "",
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}"#,
+            "",
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            "",
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":20,"server_tool_use":{"web_search_requests":1,"web_fetch_requests":0}}}"#,
+            "",
+            r#"data: {"type":"message_stop"}"#,
+            "",
+        ];
+
+        let stream = fixture_to_byte_stream(&fixture);
+        let response_stream = spawn_messages_stream(stream, Duration::from_secs(30));
+        let mut rx = response_stream.rx_event;
+
+        while let Some(event) = rx.recv().await {
+            if let Ok(ResponseEvent::Completed { token_usage, .. }) = event {
+                let usage = token_usage.expect("usage");
+                assert_eq!(usage.input_tokens, 100);
+                assert_eq!(usage.output_tokens, 20);
+                assert_eq!(usage.total_tokens, 120);
+                assert_eq!(usage.web_search_requests, 1);
+                assert_eq!(usage.web_fetch_requests, 0);
                 return;
             }
         }
@@ -1441,7 +2097,7 @@ mod tests {
         let mut rx = response_stream.rx_event;
         let mut got_error = false;
         while let Some(event) = rx.recv().await {
-            if let Err(_) = event {
+            if event.is_err() {
                 got_error = true;
             }
         }
@@ -1466,7 +2122,10 @@ mod tests {
                 found_error = true;
             }
         }
-        assert!(found_error, "overloaded error should be propagated as ApiError::ServerOverloaded");
+        assert!(
+            found_error,
+            "overloaded error should be propagated as ApiError::ServerOverloaded"
+        );
     }
 
     // ── T-3-C: malformed JSON SSE data skipped ─────────────────────────
@@ -1542,7 +2201,9 @@ mod tests {
         let has_reasoning = events.iter().any(|e| {
             matches!(
                 e,
-                Ok(ResponseEvent::OutputItemDone(ResponseItem::Reasoning { .. }))
+                Ok(ResponseEvent::OutputItemDone(
+                    ResponseItem::Reasoning { .. }
+                ))
             )
         });
         assert!(has_reasoning, "must emit Reasoning OutputItemDone");
@@ -1555,19 +2216,26 @@ mod tests {
                 if call_id == "toolu_it1"
             )
         });
-        assert!(has_tool, "must emit FunctionCall OutputItemDone with call_id=toolu_it1");
+        assert!(
+            has_tool,
+            "must emit FunctionCall OutputItemDone with call_id=toolu_it1"
+        );
 
         // Reasoning must precede tool in event order
         let reasoning_idx = events.iter().position(|e| {
             matches!(
                 e,
-                Ok(ResponseEvent::OutputItemDone(ResponseItem::Reasoning { .. }))
+                Ok(ResponseEvent::OutputItemDone(
+                    ResponseItem::Reasoning { .. }
+                ))
             )
         });
         let tool_idx = events.iter().position(|e| {
             matches!(
                 e,
-                Ok(ResponseEvent::OutputItemDone(ResponseItem::FunctionCall { .. }))
+                Ok(ResponseEvent::OutputItemDone(
+                    ResponseItem::FunctionCall { .. }
+                ))
             )
         });
         assert!(

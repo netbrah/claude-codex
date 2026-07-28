@@ -1,0 +1,10 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "timeout_ms": {
+      "description": "Optional timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
+      "type": "number"
+    }
+  },
+  "type": "object"
+}

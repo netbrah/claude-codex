@@ -1,0 +1,20 @@
+{
+  "ri_ids": ["RI-033"],
+  "_doc": "RI-033 — Parallel content block indices (HI-C5-001). Two text blocks start in parallel (index 0 + index 1), deltas arrive INTERLEAVED across indices (delta@1 'second' before delta@0 'first'), and blocks stop in start-order (0 then 1). The XLI BlockTracker (HashMap<index, BlockState>) must route each delta to the correct block by index. OutputItemDone is emitted on each content_block_stop in stop-arrival order, so the final ResponseItem[] is [Message('first'), Message('second')] — pi sees the same.",
+  "items": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        { "type": "output_text", "text": "first" }
+      ]
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        { "type": "output_text", "text": "second" }
+      ]
+    }
+  ]
+}

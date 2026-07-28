@@ -8,26 +8,27 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
+use codex_config::CloudRequirementsLoader;
 use codex_core::CodexThread;
 use codex_core::ThreadManager;
 use codex_core::config::Config;
+use codex_core::resolve_installation_id;
 use codex_core::shell::Shell;
 use codex_core::shell::get_shell_by_model_provided_path;
+use codex_core::thread_store_from_config;
 use codex_exec_server::CreateDirectoryOptions;
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::RemoveOptions;
-use codex_features::Feature;
+use codex_extension_api::empty_extension_registry;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
 use codex_models_manager::bundled_models_response;
-use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
-use codex_protocol::config_types::ServiceTier;
+use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
@@ -36,6 +37,7 @@ use codex_protocol::protocol::RealtimeConversationVersion as RealtimeWsVersion;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionConfiguredEvent;
 use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::TurnEnvironmentSelection;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use futures::future::BoxFuture;
@@ -44,16 +46,16 @@ use tempfile::TempDir;
 use wiremock::MockServer;
 
 use crate::PathBufExt;
-use crate::RemoteEnvConfig;
 use crate::TempDirExt;
 use crate::get_remote_test_env;
 use crate::load_default_config_for_test;
+use crate::load_default_config_for_test_with_cloud_requirements;
 use crate::responses::WebSocketTestServer;
 use crate::responses::output_value_to_text;
 use crate::responses::start_mock_server;
 use crate::streaming_sse::StreamingSseServer;
-use crate::wait_for_event;
 use crate::wait_for_event_match;
+use crate::wait_for_event_with_timeout;
 use wiremock::Match;
 use wiremock::matchers::path_regex;
 
@@ -62,62 +64,31 @@ type PreBuildHook = dyn FnOnce(&Path) + Send + 'static;
 type WorkspaceSetup = dyn FnOnce(AbsolutePathBuf, Arc<dyn ExecutorFileSystem>) -> BoxFuture<'static, Result<()>>
     + Send;
 const TEST_MODEL_WITH_EXPERIMENTAL_TOOLS: &str = "test-gpt-5.1-codex";
-const REMOTE_EXEC_SERVER_START_TIMEOUT: Duration = Duration::from_secs(5);
-const REMOTE_EXEC_SERVER_POLL_INTERVAL: Duration = Duration::from_millis(25);
-static REMOTE_EXEC_SERVER_INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-#[derive(Debug)]
-struct RemoteExecServerProcess {
-    container_name: String,
-    pid: u32,
-    remote_exec_server_path: String,
-    stdout_path: String,
-    cleanup_paths: Vec<String>,
-}
-
-impl Drop for RemoteExecServerProcess {
-    fn drop(&mut self) {
-        let cleanup_paths = self.cleanup_paths.join(" ");
-        let cleanup_paths_script = if cleanup_paths.is_empty() {
-            String::new()
-        } else {
-            format!("rm -rf {cleanup_paths}; ")
-        };
-        let script = format!(
-            "if kill -0 {pid} 2>/dev/null; then kill {pid}; fi; {cleanup_paths_script}rm -f {remote_exec_server_path} {stdout_path}",
-            pid = self.pid,
-            cleanup_paths_script = cleanup_paths_script,
-            remote_exec_server_path = self.remote_exec_server_path,
-            stdout_path = self.stdout_path
-        );
-        let _ = docker_command_capture_stdout(["exec", &self.container_name, "sh", "-lc", &script]);
-    }
-}
-
-impl RemoteExecServerProcess {
-    fn register_cleanup_path(&mut self, path: &Path) {
-        self.cleanup_paths.push(path.display().to_string());
-    }
-}
+const REMOTE_EXEC_SERVER_URL_ENV_VAR: &str = "CODEX_TEST_REMOTE_EXEC_SERVER_URL";
+static REMOTE_TEST_INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(0);
+const SUBMIT_TURN_COMPLETE_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 pub struct TestEnv {
     environment: codex_exec_server::Environment,
+    exec_server_url: Option<String>,
     cwd: AbsolutePathBuf,
     local_cwd_temp_dir: Option<Arc<TempDir>>,
-    _remote_exec_server_process: Option<RemoteExecServerProcess>,
+    remote_container_name: Option<String>,
 }
 
 impl TestEnv {
     pub async fn local() -> Result<Self> {
         let local_cwd_temp_dir = Arc::new(TempDir::new()?);
         let cwd = local_cwd_temp_dir.abs();
-        let environment = codex_exec_server::Environment::create(/*exec_server_url*/ None).await?;
+        let environment =
+            codex_exec_server::Environment::create_for_tests(/*exec_server_url*/ None)?;
         Ok(Self {
             environment,
+            exec_server_url: None,
             cwd,
             local_cwd_temp_dir: Some(local_cwd_temp_dir),
-            _remote_exec_server_process: None,
+            remote_container_name: None,
         })
     }
 
@@ -129,170 +100,71 @@ impl TestEnv {
         &self.environment
     }
 
-    pub fn exec_server_url(&self) -> Option<&str> {
-        self.environment.exec_server_url()
-    }
-
     fn local_cwd_temp_dir(&self) -> Option<Arc<TempDir>> {
         self.local_cwd_temp_dir.clone()
+    }
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        if let Some(container_name) = &self.remote_container_name {
+            let script = format!("rm -rf {}", self.cwd.as_path().display());
+            let _ = docker_command_capture_stdout(["exec", container_name, "sh", "-lc", &script]);
+        }
     }
 }
 
 pub async fn test_env() -> Result<TestEnv> {
     match get_remote_test_env() {
         Some(remote_env) => {
-            let mut remote_process = start_remote_exec_server(&remote_env)?;
-            let remote_ip = remote_container_ip(&remote_env.container_name)?;
-            let websocket_url = rewrite_websocket_host(&remote_process.listen_url, &remote_ip)?;
-            let environment = codex_exec_server::Environment::create(Some(websocket_url)).await?;
+            let websocket_url = remote_exec_server_url()?;
+            let environment =
+                codex_exec_server::Environment::create_for_tests(Some(websocket_url.clone()))?;
             let cwd = remote_aware_cwd_path();
             environment
                 .get_filesystem()
-                .create_directory(&cwd, CreateDirectoryOptions { recursive: true })
+                .create_directory(
+                    &cwd,
+                    CreateDirectoryOptions { recursive: true },
+                    /*sandbox*/ None,
+                )
                 .await?;
-            remote_process.process.register_cleanup_path(cwd.as_path());
             Ok(TestEnv {
                 environment,
+                exec_server_url: Some(websocket_url),
                 cwd,
                 local_cwd_temp_dir: None,
-                _remote_exec_server_process: Some(remote_process.process),
+                remote_container_name: Some(remote_env.container_name),
             })
         }
         None => TestEnv::local().await,
     }
 }
 
-struct RemoteExecServerStart {
-    process: RemoteExecServerProcess,
-    listen_url: String,
-}
-
-fn start_remote_exec_server(remote_env: &RemoteEnvConfig) -> Result<RemoteExecServerStart> {
-    let container_name = remote_env.container_name.as_str();
-    let instance_id = remote_exec_server_instance_id();
-    let remote_exec_server_path = format!("/tmp/codex-exec-server-{instance_id}");
-    let stdout_path = format!("/tmp/codex-exec-server-{instance_id}.stdout");
-    let local_binary = codex_utils_cargo_bin::cargo_bin("codex-exec-server")
-        .context("resolve codex-exec-server binary")?;
-    let local_binary = local_binary.to_string_lossy().to_string();
-    let remote_binary = format!("{container_name}:{remote_exec_server_path}");
-
-    docker_command_success(["cp", &local_binary, &remote_binary])?;
-    docker_command_success([
-        "exec",
-        container_name,
-        "chmod",
-        "+x",
-        &remote_exec_server_path,
-    ])?;
-
-    let start_script = format!(
-        "rm -f {stdout_path}; \
-nohup {remote_exec_server_path} --listen ws://0.0.0.0:0 > {stdout_path} 2>&1 & \
-echo $!"
-    );
-    let pid_output =
-        docker_command_capture_stdout(["exec", container_name, "sh", "-lc", &start_script])?;
-    let pid = pid_output
-        .trim()
-        .parse::<u32>()
-        .with_context(|| format!("parse remote exec-server PID from {pid_output:?}"))?;
-
-    let listen_url = wait_for_remote_listen_url(container_name, &stdout_path)?;
-
-    Ok(RemoteExecServerStart {
-        process: RemoteExecServerProcess {
-            container_name: container_name.to_string(),
-            pid,
-            remote_exec_server_path,
-            stdout_path,
-            cleanup_paths: Vec::new(),
-        },
-        listen_url,
-    })
-}
-
 fn remote_aware_cwd_path() -> AbsolutePathBuf {
     PathBuf::from(format!(
         "/tmp/codex-core-test-cwd-{}",
-        remote_exec_server_instance_id()
+        remote_test_instance_id()
     ))
     .abs()
 }
 
-fn wait_for_remote_listen_url(container_name: &str, stdout_path: &str) -> Result<String> {
-    let deadline = Instant::now() + REMOTE_EXEC_SERVER_START_TIMEOUT;
-    loop {
-        let line = docker_command_capture_stdout([
-            "exec",
-            container_name,
-            "sh",
-            "-lc",
-            &format!("head -n 1 {stdout_path} 2>/dev/null || true"),
-        ])?;
-        let listen_url = line.trim();
-        if listen_url.starts_with("ws://") {
-            return Ok(listen_url.to_string());
-        }
-
-        if Instant::now() >= deadline {
-            return Err(anyhow!(
-                "timed out waiting for remote exec-server listen URL in container `{container_name}` after {REMOTE_EXEC_SERVER_START_TIMEOUT:?}"
-            ));
-        }
-        std::thread::sleep(REMOTE_EXEC_SERVER_POLL_INTERVAL);
+fn remote_exec_server_url() -> Result<String> {
+    let listen_url = std::env::var(REMOTE_EXEC_SERVER_URL_ENV_VAR).with_context(|| {
+        format!("{REMOTE_EXEC_SERVER_URL_ENV_VAR} must be set for remote tests")
+    })?;
+    let listen_url = listen_url.trim();
+    if listen_url.is_empty() {
+        return Err(anyhow!(
+            "{REMOTE_EXEC_SERVER_URL_ENV_VAR} must not be empty"
+        ));
     }
+    Ok(listen_url.to_string())
 }
 
-fn remote_exec_server_instance_id() -> String {
-    let instance = REMOTE_EXEC_SERVER_INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed);
+fn remote_test_instance_id() -> String {
+    let instance = REMOTE_TEST_INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{}-{instance}", std::process::id())
-}
-
-fn remote_container_ip(container_name: &str) -> Result<String> {
-    let ip = docker_command_capture_stdout([
-        "inspect",
-        "-f",
-        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-        container_name,
-    ])?;
-    let ip = ip.trim();
-    if ip.is_empty() {
-        return Err(anyhow!(
-            "container `{container_name}` has no IP address; cannot connect to remote exec-server"
-        ));
-    }
-    Ok(ip.to_string())
-}
-
-fn rewrite_websocket_host(listen_url: &str, host: &str) -> Result<String> {
-    let Some(address) = listen_url.strip_prefix("ws://") else {
-        return Err(anyhow!(
-            "unexpected websocket listen URL `{listen_url}`; expected ws://IP:PORT"
-        ));
-    };
-    let Some((_, port)) = address.rsplit_once(':') else {
-        return Err(anyhow!(
-            "unexpected websocket listen URL `{listen_url}`; expected ws://IP:PORT"
-        ));
-    };
-    Ok(format!("ws://{host}:{port}"))
-}
-
-fn docker_command_success<const N: usize>(args: [&str; N]) -> Result<()> {
-    let output = Command::new("docker")
-        .args(args)
-        .output()
-        .with_context(|| format!("run docker {args:?}"))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "docker {:?} failed: stdout={} stderr={}",
-            args,
-            String::from_utf8_lossy(&output.stdout).trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(())
 }
 
 fn docker_command_capture_stdout<const N: usize>(args: [&str; N]) -> Result<String> {
@@ -311,23 +183,28 @@ fn docker_command_capture_stdout<const N: usize>(args: [&str; N]) -> Result<Stri
     String::from_utf8(output.stdout).context("docker stdout must be utf-8")
 }
 
-/// A collection of different ways the model can output an apply_patch call
+/// Non-default apply_patch model output shapes used by compatibility tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ApplyPatchModelOutput {
-    Freeform,
-    Function,
-    Shell,
-    ShellViaHeredoc,
     ShellCommandViaHeredoc,
 }
 
 /// A collection of different ways the model can output an apply_patch call
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShellModelOutput {
-    Shell,
     ShellCommand,
-    LocalShell,
     // UnifiedExec has its own set of tests
+}
+
+/// Returns the permission fields required by test thread-settings overrides.
+pub fn turn_permission_fields(
+    permission_profile: PermissionProfile,
+    cwd: &Path,
+) -> (SandboxPolicy, Option<PermissionProfile>) {
+    let sandbox_policy = permission_profile
+        .to_legacy_sandbox_policy(cwd)
+        .unwrap_or_else(|_| SandboxPolicy::new_read_only_policy());
+    (sandbox_policy, Some(permission_profile))
 }
 
 pub struct TestCodexBuilder {
@@ -336,7 +213,9 @@ pub struct TestCodexBuilder {
     pre_build_hooks: Vec<Box<PreBuildHook>>,
     workspace_setups: Vec<Box<WorkspaceSetup>>,
     home: Option<Arc<TempDir>>,
+    cloud_requirements: Option<CloudRequirementsLoader>,
     user_shell_override: Option<Shell>,
+    exec_server_url: Option<String>,
 }
 
 impl TestCodexBuilder {
@@ -383,8 +262,18 @@ impl TestCodexBuilder {
         self
     }
 
+    pub fn with_cloud_requirements(mut self, cloud_requirements: CloudRequirementsLoader) -> Self {
+        self.cloud_requirements = Some(cloud_requirements);
+        self
+    }
+
     pub fn with_user_shell(mut self, user_shell: Shell) -> Self {
         self.user_shell_override = Some(user_shell);
+        self
+    }
+
+    pub fn with_exec_server_url(mut self, exec_server_url: impl Into<String>) -> Self {
+        self.exec_server_url = Some(exec_server_url.into());
         self
     }
 
@@ -403,11 +292,14 @@ impl TestCodexBuilder {
         };
         let base_url = format!("{}/v1", server.uri());
         let test_env = TestEnv::local().await?;
-        Box::pin(self.build_with_home_and_base_url(base_url, home, /*resume_from*/ None, test_env))
-            .await
+        Box::pin(self.build_with_home_and_base_url(
+            base_url, home, /*resume_from*/ None, test_env,
+            /*include_local_environment*/ false,
+        ))
+        .await
     }
 
-    pub async fn build_remote_aware(
+    pub async fn build_with_remote_env(
         &mut self,
         server: &wiremock::MockServer,
     ) -> anyhow::Result<TestCodex> {
@@ -417,8 +309,28 @@ impl TestCodexBuilder {
         };
         let base_url = format!("{}/v1", server.uri());
         let test_env = test_env().await?;
-        Box::pin(self.build_with_home_and_base_url(base_url, home, /*resume_from*/ None, test_env))
-            .await
+        Box::pin(self.build_with_home_and_base_url(
+            base_url, home, /*resume_from*/ None, test_env,
+            /*include_local_environment*/ false,
+        ))
+        .await
+    }
+
+    pub async fn build_with_remote_and_local_env(
+        &mut self,
+        server: &wiremock::MockServer,
+    ) -> anyhow::Result<TestCodex> {
+        let home = match self.home.clone() {
+            Some(home) => home,
+            None => Arc::new(TempDir::new()?),
+        };
+        let base_url = format!("{}/v1", server.uri());
+        let test_env = test_env().await?;
+        Box::pin(self.build_with_home_and_base_url(
+            base_url, home, /*resume_from*/ None, test_env,
+            /*include_local_environment*/ true,
+        ))
+        .await
     }
 
     pub async fn build_with_streaming_server(
@@ -436,6 +348,7 @@ impl TestCodexBuilder {
             home,
             /*resume_from*/ None,
             test_env,
+            /*include_local_environment*/ false,
         ))
         .await
     }
@@ -457,8 +370,11 @@ impl TestCodexBuilder {
             config.realtime.version = RealtimeWsVersion::V1;
         }));
         let test_env = TestEnv::local().await?;
-        Box::pin(self.build_with_home_and_base_url(base_url, home, /*resume_from*/ None, test_env))
-            .await
+        Box::pin(self.build_with_home_and_base_url(
+            base_url, home, /*resume_from*/ None, test_env,
+            /*include_local_environment*/ false,
+        ))
+        .await
     }
 
     pub async fn resume(
@@ -469,8 +385,14 @@ impl TestCodexBuilder {
     ) -> anyhow::Result<TestCodex> {
         let base_url = format!("{}/v1", server.uri());
         let test_env = TestEnv::local().await?;
-        Box::pin(self.build_with_home_and_base_url(base_url, home, Some(rollout_path), test_env))
-            .await
+        Box::pin(self.build_with_home_and_base_url(
+            base_url,
+            home,
+            Some(rollout_path),
+            test_env,
+            /*include_local_environment*/ false,
+        ))
+        .await
     }
 
     async fn build_with_home_and_base_url(
@@ -479,13 +401,39 @@ impl TestCodexBuilder {
         home: Arc<TempDir>,
         resume_from: Option<PathBuf>,
         test_env: TestEnv,
+        include_local_environment: bool,
     ) -> anyhow::Result<TestCodex> {
         let (config, fallback_cwd) = self
             .prepare_config(base_url, &home, test_env.cwd().clone())
             .await?;
-        let environment_manager = Arc::new(codex_exec_server::EnvironmentManager::new(
-            test_env.exec_server_url().map(str::to_owned),
-        ));
+        let exec_server_url = self
+            .exec_server_url
+            .clone()
+            .or_else(|| test_env.exec_server_url.clone());
+        #[cfg(target_os = "linux")]
+        let codex_linux_sandbox_exe = Some(
+            crate::find_codex_linux_sandbox_exe()
+                .context("should find binary for codex-linux-sandbox")?,
+        );
+        #[cfg(not(target_os = "linux"))]
+        let codex_linux_sandbox_exe = None;
+        let local_runtime_paths = codex_exec_server::ExecServerRuntimePaths::new(
+            std::env::current_exe()?,
+            codex_linux_sandbox_exe,
+        )?;
+        let environment_manager = Arc::new(if include_local_environment {
+            codex_exec_server::EnvironmentManager::create_for_tests_with_local(
+                exec_server_url,
+                local_runtime_paths,
+            )
+            .await
+        } else {
+            codex_exec_server::EnvironmentManager::create_for_tests(
+                exec_server_url,
+                Some(local_runtime_paths),
+            )
+            .await
+        });
         let file_system = test_env.environment().get_filesystem();
         let mut workspace_setups = vec![];
         swap(&mut self.workspace_setups, &mut workspace_setups);
@@ -514,22 +462,21 @@ impl TestCodexBuilder {
         environment_manager: Arc<codex_exec_server::EnvironmentManager>,
     ) -> anyhow::Result<TestCodex> {
         let auth = self.auth.clone();
-        let thread_manager = if config.model_catalog.is_some() {
-            ThreadManager::new(
-                &config,
-                codex_core::test_support::auth_manager_from_auth(auth.clone()),
-                SessionSource::Exec,
-                CollaborationModesConfig::default(),
-                Arc::clone(&environment_manager),
-            )
-        } else {
-            codex_core::test_support::thread_manager_with_models_provider_and_home(
-                auth.clone(),
-                config.model_provider.clone(),
-                config.codex_home.clone(),
-                Arc::clone(&environment_manager),
-            )
-        };
+        let state_db = codex_core::init_state_db(&config).await;
+        let thread_store = thread_store_from_config(&config, state_db.clone());
+        let installation_id = resolve_installation_id(&config.codex_home).await?;
+        let thread_manager = ThreadManager::new(
+            &config,
+            codex_core::test_support::auth_manager_from_auth(auth.clone()),
+            SessionSource::Exec,
+            Arc::clone(&environment_manager),
+            empty_extension_registry(),
+            /*analytics_events_client*/ None,
+            thread_store,
+            state_db.clone(),
+            installation_id,
+            /*attestation_provider*/ None,
+        );
         let thread_manager = Arc::new(thread_manager);
         let user_shell_override = self.user_shell_override.clone();
 
@@ -595,12 +542,16 @@ impl TestCodexBuilder {
             ..built_in_model_providers(/*openai_base_url*/ None)["openai"].clone()
         };
         let cwd = Arc::new(TempDir::new()?);
-        let mut config = load_default_config_for_test(home).await;
-        config.cwd = cwd_override;
-        config.model_provider = model_provider;
         for hook in self.pre_build_hooks.drain(..) {
             hook(home.path());
         }
+        let mut config = if let Some(cloud_requirements) = self.cloud_requirements.take() {
+            load_default_config_for_test_with_cloud_requirements(home, cloud_requirements).await
+        } else {
+            load_default_config_for_test(home).await
+        };
+        config.cwd = cwd_override;
+        config.model_provider = model_provider;
         if let Ok(path) = codex_utils_cargo_bin::cargo_bin("xli") {
             config.codex_self_exe = Some(path);
         } else if let Ok(path) = codex_utils_cargo_bin::cargo_bin("codex-exec") {
@@ -626,12 +577,6 @@ impl TestCodexBuilder {
         }
         ensure_test_model_catalog(&mut config)?;
 
-        if config.include_apply_patch_tool {
-            config.features.enable(Feature::ApplyPatchFreeform)?;
-        } else {
-            config.features.disable(Feature::ApplyPatchFreeform)?;
-        }
-
         Ok((config, cwd))
     }
 }
@@ -648,9 +593,9 @@ fn ensure_test_model_catalog(config: &mut Config) -> Result<()> {
     let mut model = bundled_models
         .models
         .iter()
-        .find(|candidate| candidate.slug == "gpt-5.1-codex")
+        .find(|candidate| candidate.slug == "gpt-5.2")
         .cloned()
-        .unwrap_or_else(|| panic!("missing bundled model gpt-5.1-codex"));
+        .unwrap_or_else(|| panic!("missing bundled model gpt-5.2"));
     model.slug = TEST_MODEL_WITH_EXPERIMENTAL_TOOLS.to_string();
     model.display_name = TEST_MODEL_WITH_EXPERIMENTAL_TOOLS.to_string();
     model.experimental_supported_tools = vec!["test_sync_tool".to_string()];
@@ -692,10 +637,19 @@ impl TestCodex {
     }
 
     pub async fn submit_turn(&self, prompt: &str) -> Result<()> {
-        self.submit_turn_with_policies(
+        self.submit_turn_with_permission_profile(prompt, PermissionProfile::Disabled)
+            .await
+    }
+
+    pub async fn submit_turn_with_permission_profile(
+        &self,
+        prompt: &str,
+        permission_profile: PermissionProfile,
+    ) -> Result<()> {
+        self.submit_turn_with_approval_and_permission_profile(
             prompt,
             AskForApproval::Never,
-            SandboxPolicy::DangerFullAccess,
+            permission_profile,
         )
         .await
     }
@@ -712,13 +666,14 @@ impl TestCodex {
     pub async fn submit_turn_with_service_tier(
         &self,
         prompt: &str,
-        service_tier: Option<ServiceTier>,
+        service_tier: Option<&str>,
     ) -> Result<()> {
-        self.submit_turn_with_context(
+        self.submit_turn_with_permission_profile_context(
             prompt,
             AskForApproval::Never,
-            SandboxPolicy::DangerFullAccess,
-            Some(service_tier),
+            PermissionProfile::Disabled,
+            Some(service_tier.map(str::to_string)),
+            /*environments*/ None,
         )
         .await
     }
@@ -729,11 +684,65 @@ impl TestCodex {
         approval_policy: AskForApproval,
         sandbox_policy: SandboxPolicy,
     ) -> Result<()> {
+        let permission_profile = PermissionProfile::from_legacy_sandbox_policy_for_cwd(
+            &sandbox_policy,
+            self.config.cwd.as_path(),
+        );
         self.submit_turn_with_context(
             prompt,
             approval_policy,
-            sandbox_policy,
+            permission_profile,
             /*service_tier*/ None,
+            /*environments*/ None,
+        )
+        .await
+    }
+
+    pub async fn submit_turn_with_approval_and_permission_profile(
+        &self,
+        prompt: &str,
+        approval_policy: AskForApproval,
+        permission_profile: PermissionProfile,
+    ) -> Result<()> {
+        self.submit_turn_with_permission_profile_context(
+            prompt,
+            approval_policy,
+            permission_profile,
+            /*service_tier*/ None,
+            /*environments*/ None,
+        )
+        .await
+    }
+
+    pub async fn submit_turn_with_environments(
+        &self,
+        prompt: &str,
+        environments: Option<Vec<TurnEnvironmentSelection>>,
+    ) -> Result<()> {
+        self.submit_turn_with_permission_profile_context(
+            prompt,
+            AskForApproval::Never,
+            PermissionProfile::Disabled,
+            /*service_tier*/ None,
+            environments,
+        )
+        .await
+    }
+
+    async fn submit_turn_with_permission_profile_context(
+        &self,
+        prompt: &str,
+        approval_policy: AskForApproval,
+        permission_profile: PermissionProfile,
+        service_tier: Option<Option<String>>,
+        environments: Option<Vec<TurnEnvironmentSelection>>,
+    ) -> Result<()> {
+        self.submit_turn_with_context(
+            prompt,
+            approval_policy,
+            permission_profile,
+            service_tier,
+            environments,
         )
         .await
     }
@@ -742,27 +751,39 @@ impl TestCodex {
         &self,
         prompt: &str,
         approval_policy: AskForApproval,
-        sandbox_policy: SandboxPolicy,
-        service_tier: Option<Option<ServiceTier>>,
+        permission_profile: PermissionProfile,
+        service_tier: Option<Option<String>>,
+        environments: Option<Vec<TurnEnvironmentSelection>>,
     ) -> Result<()> {
+        let (sandbox_policy, permission_profile) =
+            turn_permission_fields(permission_profile, self.config.cwd.as_path());
         let session_model = self.session_configured.model.clone();
         self.codex
-            .submit(Op::UserTurn {
+            .submit(Op::UserInput {
                 items: vec![UserInput::Text {
                     text: prompt.into(),
                     text_elements: Vec::new(),
                 }],
+                environments,
                 final_output_json_schema: None,
-                cwd: self.config.cwd.to_path_buf(),
-                approval_policy,
-                approvals_reviewer: None,
-                sandbox_policy,
-                model: session_model,
-                effort: None,
-                summary: None,
-                service_tier,
-                collaboration_mode: None,
-                personality: None,
+                responsesapi_client_metadata: None,
+                additional_context: Default::default(),
+                thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
+                    cwd: Some(self.config.cwd.to_path_buf()),
+                    approval_policy: Some(approval_policy),
+                    sandbox_policy: Some(sandbox_policy),
+                    permission_profile,
+                    service_tier,
+                    collaboration_mode: Some(codex_protocol::config_types::CollaborationMode {
+                        mode: codex_protocol::config_types::ModeKind::Default,
+                        settings: codex_protocol::config_types::Settings {
+                            model: session_model,
+                            reasoning_effort: None,
+                            developer_instructions: None,
+                        },
+                    }),
+                    ..Default::default()
+                },
             })
             .await?;
 
@@ -771,10 +792,14 @@ impl TestCodex {
             _ => None,
         })
         .await;
-        wait_for_event(&self.codex, |event| match event {
-            EventMsg::TurnComplete(event) => event.turn_id == turn_id,
-            _ => false,
-        })
+        wait_for_event_with_timeout(
+            &self.codex,
+            |event| match event {
+                EventMsg::TurnComplete(event) => event.turn_id == turn_id,
+                _ => false,
+            },
+            SUBMIT_TURN_COMPLETE_TIMEOUT,
+        )
         .await;
         Ok(())
     }
@@ -800,9 +825,9 @@ impl TestCodexHarness {
         Ok(Self { server, test })
     }
 
-    pub async fn with_remote_aware_builder(mut builder: TestCodexBuilder) -> Result<Self> {
+    pub async fn with_remote_env_builder(mut builder: TestCodexBuilder) -> Result<Self> {
         let server = start_mock_server().await;
-        let test = builder.build_remote_aware(&server).await?;
+        let test = builder.build_with_remote_env(&server).await?;
         Ok(Self { server, test })
     }
 
@@ -835,18 +860,26 @@ impl TestCodexHarness {
         if let Some(parent) = abs_path.parent() {
             self.test
                 .fs()
-                .create_directory(&parent, CreateDirectoryOptions { recursive: true })
+                .create_directory(
+                    &parent,
+                    CreateDirectoryOptions { recursive: true },
+                    /*sandbox*/ None,
+                )
                 .await?;
         }
         self.test
             .fs()
-            .write_file(&abs_path, contents.as_ref().to_vec())
+            .write_file(&abs_path, contents.as_ref().to_vec(), /*sandbox*/ None)
             .await?;
         Ok(())
     }
 
     pub async fn read_file_text(&self, rel: impl AsRef<Path>) -> Result<String> {
-        Ok(self.test.fs().read_file_text(&self.path_abs(rel)).await?)
+        Ok(self
+            .test
+            .fs()
+            .read_file_text(&self.path_abs(rel), /*sandbox*/ None)
+            .await?)
     }
 
     pub async fn create_dir_all(&self, rel: impl AsRef<Path>) -> Result<()> {
@@ -855,6 +888,7 @@ impl TestCodexHarness {
             .create_directory(
                 &self.path_abs(rel),
                 CreateDirectoryOptions { recursive: true },
+                /*sandbox*/ None,
             )
             .await?;
         Ok(())
@@ -873,13 +907,14 @@ impl TestCodexHarness {
                     recursive: false,
                     force: true,
                 },
+                /*sandbox*/ None,
             )
             .await?;
         Ok(())
     }
 
     pub async fn abs_path_exists(&self, path: &AbsolutePathBuf) -> Result<bool> {
-        match self.test.fs().get_metadata(path).await {
+        match self.test.fs().get_metadata(path, /*sandbox*/ None).await {
             Ok(_) => Ok(true),
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
             Err(err) => Err(err.into()),
@@ -899,6 +934,16 @@ impl TestCodexHarness {
     ) -> Result<()> {
         self.test
             .submit_turn_with_policy(prompt, sandbox_policy)
+            .await
+    }
+
+    pub async fn submit_with_permission_profile(
+        &self,
+        prompt: &str,
+        permission_profile: PermissionProfile,
+    ) -> Result<()> {
+        self.test
+            .submit_turn_with_permission_profile(prompt, permission_profile)
             .await
     }
 
@@ -936,24 +981,8 @@ impl TestCodexHarness {
         custom_tool_call_output_text(&bodies, call_id)
     }
 
-    pub async fn apply_patch_output(
-        &self,
-        call_id: &str,
-        output_type: ApplyPatchModelOutput,
-    ) -> String {
-        // Box the awaited output helpers so callers do not inline request
-        // capture and response parsing into their own async state.
-        match output_type {
-            ApplyPatchModelOutput::Freeform => {
-                Box::pin(self.custom_tool_call_output(call_id)).await
-            }
-            ApplyPatchModelOutput::Function
-            | ApplyPatchModelOutput::Shell
-            | ApplyPatchModelOutput::ShellViaHeredoc
-            | ApplyPatchModelOutput::ShellCommandViaHeredoc => {
-                Box::pin(self.function_call_stdout(call_id)).await
-            }
-        }
+    pub async fn apply_patch_output(&self, call_id: &str) -> String {
+        self.custom_tool_call_output(call_id).await
     }
 }
 
@@ -1002,7 +1031,9 @@ pub fn test_codex() -> TestCodexBuilder {
         pre_build_hooks: vec![],
         workspace_setups: vec![],
         home: None,
+        cloud_requirements: None,
         user_shell_override: None,
+        exec_server_url: None,
     }
 }
 

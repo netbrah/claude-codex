@@ -1,0 +1,64 @@
+{
+  "_doc": "RI-023 fixture. Anthropic ToolResult blocks can carry an is_error: true flag indicating the downstream tool failed. XLI's translate_inbound_to_responses_input CURRENTLY drops is_error entirely (AnthropicContentBlock::ToolResult struct does not declare the field, so serde silently ignores it). The /responses bridge equivalent (FunctionCallOutputPayload.success: Option<bool>) is the documented target; until the closure ships, is_error is lost. This fixture locks the current lossy behavior + annotates the gap so a future fix breaks this test intentionally.",
+  "_known_gap": {
+    "ri": "RI-023",
+    "severity": "BLOCKS_PROD",
+    "description": "Anthropic tool_result is_error flag is silently dropped on the inbound leg. The Responses bridge maps to FunctionCallOutputPayload.success: Some(false); without the inbound plumbing, the harness loses the error signal and the model retries blind.",
+    "fix_location": "spokes/xli/codex-rs/codex-api/src/messages_server/inbound.rs — add is_error to AnthropicContentBlock::ToolResult + thread to FunctionCallOutputPayload.success"
+  },
+  "request": {
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tu_err",
+            "name": "shell",
+            "input": { "command": "false" }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "tu_err",
+            "content": "exit status 1",
+            "is_error": true
+          }
+        ]
+      }
+    ]
+  },
+  "expected_messages_input": [
+    {
+      "type": "function_call",
+      "call_id": "tu_err",
+      "name": "shell",
+      "arguments": "{\"command\":\"false\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "tu_err",
+      "output": "exit status 1"
+    }
+  ],
+  "_desired_messages_input": [
+    {
+      "type": "function_call",
+      "call_id": "tu_err",
+      "name": "shell",
+      "arguments": "{\"command\":\"false\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "tu_err",
+      "output": "exit status 1",
+      "success": false
+    }
+  ]
+}

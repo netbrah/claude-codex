@@ -1,0 +1,26 @@
+{
+  "_doc": "Pi-IR projection of parallel_block_indices/messages_sse.json. MIRRORED with pi: both harnesses route deltas by content_block_index to the correct in-flight block. Pi's `blocks` keyed by index (index.ts:1023) and XLI's BlockTracker HashMap (sse/messages.rs) are isomorphic. The fixture starts two text blocks in parallel, interleaves their deltas (index 1's 'second' BEFORE index 0's 'first'), and stops in start-order. Both harnesses produce [text('first'), text('second')] in stop-arrival order. Closes RI-033 (INVARIANT — Parallel content block indices / HI-C5-001).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:text:1023",
+    "event.type:content_block_delta:1047",
+    "delta.type:text_delta:1048",
+    "event.type:content_block_stop:1095",
+    "block.type:text:1100",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_xli_target": "ResponseItem[Message{[OutputText('first')]}, Message{[OutputText('second')]}]",
+  "output_content": [
+    {
+      "type": "text",
+      "text": "first"
+    },
+    {
+      "type": "text",
+      "text": "second"
+    }
+  ]
+}

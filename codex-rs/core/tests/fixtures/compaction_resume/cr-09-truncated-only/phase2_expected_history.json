@@ -1,0 +1,59 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "read both files"
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "id": "tool_a",
+            "name": "read_file",
+            "args": {
+              "path": "/a"
+            }
+          }
+        },
+        {
+          "functionCall": {
+            "id": "tool_b",
+            "name": "read_file",
+            "args": {
+              "path": "/b"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "tool_a",
+            "name": "read_file",
+            "response": {
+              "output": "A"
+            }
+          }
+        },
+        {
+          "functionResponse": {
+            "id": "tool_b",
+            "name": "read_file",
+            "response": {
+              "output": "B"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "status": 6
+}

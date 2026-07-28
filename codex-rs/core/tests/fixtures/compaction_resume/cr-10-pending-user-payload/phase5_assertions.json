@@ -1,0 +1,9 @@
+{
+  "apex": {
+    "role_alternation": ["user", "model", "user"],
+    "tool_dispatch_ids": []
+  },
+  "xli": {
+    "tool_dispatch_ids": []
+  }
+}

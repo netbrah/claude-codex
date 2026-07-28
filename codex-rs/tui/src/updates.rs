@@ -1,9 +1,13 @@
 #![cfg(not(debug_assertions))]
 
+use crate::legacy_core::config::Config;
+use crate::update_action;
+use crate::update_action::UpdateAction;
+use crate::update_versions::is_newer;
+use crate::update_versions::is_source_build_version;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono::Utc;
-use codex_core::config::Config;
 use codex_login::default_client::create_client;
 use serde::Deserialize;
 use serde::Serialize;
@@ -17,6 +21,7 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
         return None;
     }
 
+    let action = update_action::get_update_action();
     let version_file = version_filepath(config);
     let info = read_version_info(&version_file).ok();
 
@@ -25,10 +30,10 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
         Some(info) => info.last_checked_at < Utc::now() - Duration::hours(20),
     } {
         // Refresh the cached latest version in the background so TUI startup
-        // isn’t blocked by a network call. The UI reads the previously cached
+        // isn't blocked by a network call. The UI reads the previously cached
         // value (if any) for this run; the next run shows the banner if needed.
         tokio::spawn(async move {
-            check_for_update(&version_file)
+            check_for_update(&version_file, action)
                 .await
                 .inspect_err(|e| tracing::error!("Failed to update version: {e}"))
         });
@@ -56,7 +61,7 @@ const VERSION_FILENAME: &str = "version.json";
 const LATEST_VERSION_URL: &str = "";
 
 fn version_filepath(config: &Config) -> PathBuf {
-    config.codex_home.join(VERSION_FILENAME)
+    config.codex_home.join(VERSION_FILENAME).into_path_buf()
 }
 
 fn read_version_info(version_file: &Path) -> anyhow::Result<VersionInfo> {
@@ -64,8 +69,11 @@ fn read_version_info(version_file: &Path) -> anyhow::Result<VersionInfo> {
     Ok(serde_json::from_str(&contents)?)
 }
 
-async fn check_for_update(version_file: &Path) -> anyhow::Result<()> {
-    // Fetch plain-text version from Artifactory (e.g. "0.2.0\n").
+async fn check_for_update(
+    version_file: &Path,
+    _action: Option<UpdateAction>,
+) -> anyhow::Result<()> {
+    // Fetch the plain-text latest version (e.g. "0.2.0\n").
     let latest_version = create_client()
         .get(LATEST_VERSION_URL)
         .send()
@@ -90,13 +98,6 @@ async fn check_for_update(version_file: &Path) -> anyhow::Result<()> {
     }
     tokio::fs::write(version_file, json_line).await?;
     Ok(())
-}
-
-fn is_newer(latest: &str, current: &str) -> Option<bool> {
-    match (parse_version(latest), parse_version(current)) {
-        (Some(l), Some(c)) => Some(l > c),
-        _ => None,
-    }
 }
 
 /// Returns the latest version to show in a popup, if it should be shown.
@@ -132,41 +133,4 @@ pub async fn dismiss_version(config: &Config, version: &str) -> anyhow::Result<(
     }
     tokio::fs::write(version_file, json_line).await?;
     Ok(())
-}
-
-fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
-    let mut iter = v.trim().split('.');
-    let maj = iter.next()?.parse::<u64>().ok()?;
-    let min = iter.next()?.parse::<u64>().ok()?;
-    let pat = iter.next()?.parse::<u64>().ok()?;
-    Some((maj, min, pat))
-}
-
-fn is_source_build_version(version: &str) -> bool {
-    parse_version(version) == Some((0, 0, 0))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prerelease_version_is_not_considered_newer() {
-        assert_eq!(is_newer("0.11.0-beta.1", "0.11.0"), None);
-        assert_eq!(is_newer("1.0.0-rc.1", "1.0.0"), None);
-    }
-
-    #[test]
-    fn plain_semver_comparisons_work() {
-        assert_eq!(is_newer("0.11.1", "0.11.0"), Some(true));
-        assert_eq!(is_newer("0.11.0", "0.11.1"), Some(false));
-        assert_eq!(is_newer("1.0.0", "0.9.9"), Some(true));
-        assert_eq!(is_newer("0.9.9", "1.0.0"), Some(false));
-    }
-
-    #[test]
-    fn whitespace_is_ignored() {
-        assert_eq!(parse_version(" 1.2.3 \n"), Some((1, 2, 3)));
-        assert_eq!(is_newer(" 1.2.3 ", "1.2.2"), Some(true));
-    }
 }

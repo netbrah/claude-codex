@@ -1,0 +1,83 @@
+{
+  "_doc": "RI-005 / RI-006 fixture. Inbound Anthropic tool_result carries text+image content blocks. XLI's translate_inbound_to_responses_input CURRENTLY emits a function_call_output with the text-only flattened payload (image silently DROPPED at tool_result_text() in src/messages_server/inbound.rs — only AnthropicContentBlock::Text contributes to the joined string). The image-preservation closure is a documented BLOCKS_PROD gap (RI-006). This fixture locks the CURRENT lossy contract so a future fix can intentionally break + update this test. The original `expected_messages_input` (pre-Stage-C wire-up) encoded the desired multimodal shape; it has been preserved in `_desired_messages_input` as a forward-looking contract.",
+  "_known_gap": {
+    "ri": "RI-006",
+    "severity": "BLOCKS_PROD",
+    "description": "tool_result image blocks are dropped on the inbound leg — only the text content survives the flattening in tool_result_text(). Cross-wire equivalent on /responses preserves the multimodal payload via function_call_output.output as ContentItem[].",
+    "fix_location": "spokes/xli/codex-rs/codex-api/src/messages_server/inbound.rs::tool_result_text + translate_user_message ToolResult arm"
+  },
+  "request": {
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tu_img",
+            "name": "screenshot",
+            "input": {}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "tu_img",
+            "content": [
+              {
+                "type": "text",
+                "text": "screenshot"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "url": "https://example.com/a.png"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_messages_input": [
+    {
+      "type": "function_call",
+      "call_id": "tu_img",
+      "name": "screenshot",
+      "arguments": "{}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "tu_img",
+      "output": "screenshot"
+    }
+  ],
+  "_desired_messages_input": [
+    {
+      "type": "function_call",
+      "call_id": "tu_img",
+      "name": "screenshot",
+      "arguments": "{}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "tu_img",
+      "output": [
+        {
+          "type": "input_text",
+          "text": "screenshot"
+        },
+        {
+          "type": "input_image",
+          "image_url": "https://example.com/a.png"
+        }
+      ]
+    }
+  ]
+}

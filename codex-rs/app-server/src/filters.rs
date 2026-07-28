@@ -71,7 +71,8 @@ pub(crate) fn source_kind_matches(source: &CoreSessionSource, filter: &[ThreadSo
         }
         ThreadSourceKind::SubAgentThreadSpawn => matches!(
             source,
-            CoreSessionSource::SubAgent(CoreSubAgentSource::ThreadSpawn { .. })
+            CoreSessionSource::SubAgent(CoreSubAgentSource::ThreadSpawn { ..
+    })
         ),
         ThreadSourceKind::SubAgentOther => matches!(
             source,
@@ -136,7 +137,8 @@ mod tests {
             agent_path: None,
             agent_nickname: None,
             agent_role: None,
-        });
+        parent_spawn_call_id: None,
+    });
 
         assert!(source_kind_matches(
             &review,

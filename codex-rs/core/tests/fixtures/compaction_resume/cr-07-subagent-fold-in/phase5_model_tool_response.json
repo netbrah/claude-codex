@@ -1,0 +1,12 @@
+{
+  "role": "model",
+  "parts": [
+    {
+      "functionCall": {
+        "id": "dispatch_001",
+        "name": "read_file",
+        "args": {}
+      }
+    }
+  ]
+}

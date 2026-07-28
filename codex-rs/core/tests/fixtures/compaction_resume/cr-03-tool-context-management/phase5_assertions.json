@@ -1,0 +1,9 @@
+{
+  "apex": {
+    "tool_dispatch_ids": ["read_file"],
+    "role_alternation": ["user", "model", "user", "model"]
+  },
+  "xli": {
+    "tool_dispatch_ids": ["read_file"]
+  }
+}

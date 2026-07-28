@@ -1,7 +1,10 @@
 /// Update action the CLI should perform after the TUI exits.
+///
+/// XLI distributes through a single curl installer.
+/// No npm, no bun, no homebrew, no standalone detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
-    /// Re-run the installer to pull the latest binary.
+    /// Re-run the XLI installer to pull the latest binary.
     CurlInstall,
 }
 
@@ -24,6 +27,6 @@ impl UpdateAction {
 }
 
 #[cfg(not(debug_assertions))]
-pub(crate) fn get_update_action() -> Option<UpdateAction> {
+pub fn get_update_action() -> Option<UpdateAction> {
     Some(UpdateAction::CurlInstall)
 }

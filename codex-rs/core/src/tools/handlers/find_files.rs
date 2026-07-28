@@ -10,10 +10,15 @@ use serde::Deserialize;
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::ToolInvocation;
+use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
+use crate::tools::context::boxed_tool_output;
 use crate::tools::handlers::parse_arguments;
-use crate::tools::registry::ToolHandler;
-use crate::tools::registry::ToolKind;
+use crate::tools::handlers::test_sync_spec::create_find_files_tool;
+use crate::tools::registry::CoreToolRuntime;
+use crate::tools::registry::ToolExecutor;
+use codex_tools::ToolName;
+use codex_tools::ToolSpec;
 
 pub struct FindFilesHandler;
 
@@ -25,17 +30,25 @@ struct FindFilesArgs {
     path: Option<String>,
 }
 
-impl ToolHandler for FindFilesHandler {
-    type Output = FunctionToolOutput;
-
-    fn kind(&self) -> ToolKind {
-        ToolKind::Function
+#[async_trait::async_trait]
+impl ToolExecutor<ToolInvocation> for FindFilesHandler {
+    fn tool_name(&self) -> ToolName {
+        ToolName::plain("find_files")
     }
 
-    async fn handle(&self, invocation: ToolInvocation) -> Result<Self::Output, FunctionCallError> {
-        let ToolInvocation {
-            payload, turn, ..
-        } = invocation;
+    fn spec(&self) -> ToolSpec {
+        create_find_files_tool()
+    }
+
+    fn supports_parallel_tool_calls(&self) -> bool {
+        true
+    }
+
+    async fn handle(
+        &self,
+        invocation: ToolInvocation,
+    ) -> Result<Box<dyn ToolOutput>, FunctionCallError> {
+        let ToolInvocation { payload, turn, .. } = invocation;
 
         let arguments = match payload {
             ToolPayload::Function { arguments } => arguments,
@@ -105,9 +118,7 @@ impl ToolHandler for FindFilesHandler {
         .map_err(|err| {
             FunctionCallError::RespondToModel(format!("file search task failed: {err}"))
         })?
-        .map_err(|err| {
-            FunctionCallError::RespondToModel(format!("file search error: {err}"))
-        })?;
+        .map_err(|err| FunctionCallError::RespondToModel(format!("file search error: {err}")))?;
 
         let FileSearchResults {
             matches,
@@ -138,9 +149,14 @@ impl ToolHandler for FindFilesHandler {
             }
         }
 
-        Ok(FunctionToolOutput::from_text(output.join("\n"), Some(true)))
+        Ok(boxed_tool_output(FunctionToolOutput::from_text(
+            output.join("\n"),
+            Some(true),
+        )))
     }
 }
+
+impl CoreToolRuntime for FindFilesHandler {}
 
 #[cfg(test)]
 #[path = "find_files_tests.rs"]

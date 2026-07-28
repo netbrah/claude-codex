@@ -1,5 +1,5 @@
 [target.'cfg(all(windows, target_env = "msvc"))']
-rustflags = ["-C", "link-arg=/STACK:8388608"]
+rustflags = ["-C", "link-arg=/STACK:8388608", "-C", "target-feature=+crt-static"]
 
 # MSVC emits a warning about code that may trip "Cortex-A53 MPCore processor bug #843419" (see
 # https://developer.arm.com/documentation/epm048406/latest) which is sometimes emitted by LLVM.
@@ -9,3 +9,12 @@ rustflags = ["-C", "link-arg=/STACK:8388608", "-C", "link-arg=/arm64hazardfree"]
 
 [target.'cfg(all(windows, target_env = "gnu"))']
 rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+
+# Match CI's test-thread stack size on every local `cargo test`.
+# CI sets RUST_MIN_STACK=8388608 (8 MiB) in .github/workflows/rust-ci*.yml because
+# the embedded-app-server futures in codex-tui tests overflow the default 2 MiB
+# libtest thread stack and SIGABRT. Without this, local `cargo test -p codex-tui`
+# aborts spuriously and looks like a real regression. cargo [env] does NOT force,
+# so an explicit `RUST_MIN_STACK=...` export from the shell still wins.
+[env]
+RUST_MIN_STACK = "8388608" # 8 MiB — keep in sync with .github/workflows/rust-ci*.yml

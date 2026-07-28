@@ -1,16 +1,19 @@
+pub(crate) mod litellm_model_info;
+
+pub use litellm_model_info::enrich_models_with_litellm;
 pub(crate) mod cache;
 pub mod collaboration_mode_presets;
 pub(crate) mod config;
 pub mod manager;
 pub mod model_info;
 pub mod model_presets;
+pub mod provider_caps;
+pub mod test_support;
 
 pub use codex_app_server_protocol::AuthMode;
-pub use codex_login::AuthManager;
-pub use codex_login::CodexAuth;
-pub use codex_model_provider_info::ModelProviderInfo;
-pub use codex_model_provider_info::WireApi;
 pub use config::ModelsManagerConfig;
+pub use provider_caps::ProviderCaps;
+pub use provider_caps::ProviderCapsPatch;
 
 /// Load the bundled model catalog shipped with `codex-models-manager`.
 pub fn bundled_models_response()

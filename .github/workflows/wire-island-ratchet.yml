@@ -1,0 +1,97 @@
+# HCE-04b + S-WI-05: wire-island fork-surface ratchet + HCE invariant ratchet.
+# Fork-surface runs in-repo; HCE matrices live in cli-ops (second checkout).
+
+name: Wire Island + HCE Ratchet
+
+on:
+  pull_request:
+    paths:
+      - 'codex-rs/**'
+      - 'scripts/verify-xli-fork-surface.sh'
+      - 'scripts/xli-island-allowlist.txt'
+      - 'scripts/xli-ratchet-baseline.lock'
+      - '.github/workflows/wire-island-ratchet.yml'
+  push:
+    branches: [xli-v5, dev]
+    paths:
+      - 'codex-rs/**'
+      - 'scripts/**'
+      - '.github/workflows/wire-island-ratchet.yml'
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ratchet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout xli
+        uses: actions/checkout@v4
+
+      - name: Fetch upstream (fork-surface three-dot diff)
+        run: |
+          git remote add upstream https://github.com/openai/codex.git || true
+          git fetch upstream main --depth=1
+
+      - name: Wire island fork-surface ratchet
+        id: fork_surface
+        run: |
+          NI=$(grep '^non_island_modified=' scripts/xli-ratchet-baseline.lock | cut -d= -f2)
+          WA=$(grep '^wire_adjacent_modified=' scripts/xli-ratchet-baseline.lock | cut -d= -f2)
+          bash scripts/verify-xli-fork-surface.sh "${NI}" "${WA}"
+        continue-on-error: true
+
+      - name: Checkout cli-ops (HCE invariant matrices)
+        uses: actions/checkout@v4
+        with:
+          repository: netbrah/cli-ops
+          path: cli-ops
+          token: ${{ secrets.CLI_OPS_BOOT_PAT || github.token }}
+
+      - name: HCE invariant ratchet
+        id: hce
+        working-directory: cli-ops
+        run: |
+          bash sortie-board/harness-contract-enforcement/scripts/verify-invariant-coverage.sh --ci
+        continue-on-error: true
+
+      - name: PR comment (combined report)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let hce = 'HCE ratchet report unavailable.';
+            try {
+              hce = fs.readFileSync('/tmp/hce-ratchet-report.md', 'utf8');
+            } catch (_) {}
+            const fork = '${{ steps.fork_surface.outcome }}' === 'success' ? '✅ PASS' : '❌ FAIL';
+            const hceStatus = '${{ steps.hce.outcome }}' === 'success' ? '✅ PASS' : '❌ FAIL';
+            const body = [
+              '### XLI Wire Island + HCE Ratchet',
+              '',
+              `**Fork-surface:** ${fork}`,
+              `**HCE invariant:** ${hceStatus}`,
+              '',
+              '<details><summary>HCE detail</summary>',
+              '',
+              hce,
+              '',
+              '</details>',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail if any ratchet violated
+        if: steps.fork_surface.outcome == 'failure' || steps.hce.outcome == 'failure'
+        run: |
+          echo "::error::Ratchet violated (fork-surface=${{ steps.fork_surface.outcome }}, hce=${{ steps.hce.outcome }})"
+          exit 1

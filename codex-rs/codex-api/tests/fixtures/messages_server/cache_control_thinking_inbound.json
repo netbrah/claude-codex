@@ -1,0 +1,65 @@
+{
+  "_doc": "RI-014 fixture. Anthropic supports cache_control: {type:'ephemeral'} on any content block to mark a prompt-cache breakpoint. The endpoint/messages.rs OUTBOUND path opts into prompt caching unconditionally. On the INBOUND leg, AnthropicContentBlock does not declare cache_control on any of its arms; serde silently drops the field. When a thinking block carries cache_control + signature, the downstream /responses bridge cannot replay the cache marker. This fixture asserts the current pass-through behavior of the content blocks themselves AND documents the cache_control loss as a known gap.",
+  "_known_gap": {
+    "ri": "RI-014",
+    "severity": "BLOCKS_PROD",
+    "description": "cache_control on content blocks is dropped on the inbound leg because AnthropicContentBlock variants do not declare a cache_control field. Downstream /responses sees the content but loses the cache breakpoint, so prompt-cache reuse degrades to full re-tokenization on the next turn.",
+    "fix_location": "spokes/xli/codex-rs/codex-api/src/messages_server/inbound.rs::AnthropicContentBlock + AnthropicMessage"
+  },
+  "request": {
+    "model": "claude-opus-4.6",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "long context goes here",
+            "cache_control": { "type": "ephemeral" }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "let me consider",
+            "cache_control": { "type": "ephemeral" }
+          },
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_messages_input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "long context goes here"
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "let me consider"
+        },
+        {
+          "type": "output_text",
+          "text": "answer"
+        }
+      ]
+    }
+  ]
+}

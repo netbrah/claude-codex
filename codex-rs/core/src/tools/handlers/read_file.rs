@@ -7,10 +7,15 @@ use serde::Deserialize;
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::ToolInvocation;
+use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
+use crate::tools::context::boxed_tool_output;
 use crate::tools::handlers::parse_arguments;
-use crate::tools::registry::ToolHandler;
-use crate::tools::registry::ToolKind;
+use crate::tools::handlers::test_sync_spec::create_read_file_tool;
+use crate::tools::registry::CoreToolRuntime;
+use crate::tools::registry::ToolExecutor;
+use codex_tools::ToolName;
+use codex_tools::ToolSpec;
 
 pub struct ReadFileHandler;
 
@@ -90,14 +95,24 @@ impl LineRecord {
     }
 }
 
-impl ToolHandler for ReadFileHandler {
-    type Output = FunctionToolOutput;
-
-    fn kind(&self) -> ToolKind {
-        ToolKind::Function
+#[async_trait::async_trait]
+impl ToolExecutor<ToolInvocation> for ReadFileHandler {
+    fn tool_name(&self) -> ToolName {
+        ToolName::plain("read_file")
     }
 
-    async fn handle(&self, invocation: ToolInvocation) -> Result<Self::Output, FunctionCallError> {
+    fn spec(&self) -> ToolSpec {
+        create_read_file_tool()
+    }
+
+    fn supports_parallel_tool_calls(&self) -> bool {
+        true
+    }
+
+    async fn handle(
+        &self,
+        invocation: ToolInvocation,
+    ) -> Result<Box<dyn ToolOutput>, FunctionCallError> {
         let ToolInvocation { payload, .. } = invocation;
 
         let arguments = match payload {
@@ -145,16 +160,18 @@ impl ToolHandler for ReadFileHandler {
                 indentation::read_block(&path, offset, limit, indentation).await?
             }
         };
-        Ok(FunctionToolOutput::from_text(
+        Ok(boxed_tool_output(FunctionToolOutput::from_text(
             collected.join("\n"),
             Some(true),
-        ))
+        )))
     }
 }
 
+impl CoreToolRuntime for ReadFileHandler {}
+
 mod slice {
-    use crate::function_tool::FunctionCallError;
     use super::format_line;
+    use crate::function_tool::FunctionCallError;
     use std::path::Path;
     use tokio::fs::File;
     use tokio::io::AsyncBufReadExt;
@@ -220,12 +237,12 @@ mod slice {
 }
 
 mod indentation {
-    use crate::function_tool::FunctionCallError;
     use super::IndentationArgs;
     use super::LineRecord;
     use super::TAB_WIDTH;
     use super::format_line;
     use super::trim_empty_lines;
+    use crate::function_tool::FunctionCallError;
     use std::collections::VecDeque;
     use std::path::Path;
     use tokio::fs::File;
@@ -481,7 +498,3 @@ mod defaults {
         true
     }
 }
-
-#[cfg(test)]
-#[path = "read_file_tests.rs"]
-mod tests;

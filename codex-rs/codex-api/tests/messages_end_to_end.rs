@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! End-to-end integration tests for the Anthropic `/messages` wire protocol.
 //!
 //! Uses a fixture HTTP transport to feed canned SSE bytes through the full
@@ -57,10 +58,9 @@ impl HttpTransport for FixtureSseTransport {
 #[derive(Clone, Default)]
 struct NoAuth;
 
+#[async_trait::async_trait]
 impl AuthProvider for NoAuth {
-    fn bearer_token(&self) -> Option<String> {
-        None
-    }
+    fn add_auth_headers(&self, _headers: &mut http::HeaderMap) {}
 }
 
 fn provider() -> Provider {
@@ -69,7 +69,7 @@ fn provider() -> Provider {
         base_url: "https://example.com/v1".to_string(),
         query_params: None,
         headers: HeaderMap::new(),
-        retry: codex_api::provider::RetryConfig {
+        retry: codex_api::RetryConfig {
             max_attempts: 1,
             base_delay: Duration::from_millis(1),
             retry_429: false,
@@ -99,6 +99,7 @@ fn simple_request() -> MessagesApiRequest {
         tools: None,
         tool_choice: None,
         thinking: None,
+        output_config: None,
         temperature: None,
         top_p: None,
         top_k: None,
@@ -108,7 +109,7 @@ fn simple_request() -> MessagesApiRequest {
 }
 
 async fn collect_events(transport: FixtureSseTransport) -> Vec<Result<ResponseEvent, String>> {
-    let client = MessagesClient::new(transport, provider(), NoAuth);
+    let client = MessagesClient::new(transport, provider(), std::sync::Arc::new(NoAuth));
     let stream = client
         .stream_request(simple_request(), HeaderMap::new())
         .await
@@ -441,11 +442,11 @@ async fn messages_proxy_translated_reasoning_deltas_end_to_end() -> Result<()> {
     // Verify text response follows
     let mut found_text = false;
     for event in &ok_events {
-        if let ResponseEvent::OutputItemDone(ResponseItem::Message { content, .. }) = event {
-            if let Some(ContentItem::OutputText { text }) = content.first() {
-                assert_eq!(text, "12,231");
-                found_text = true;
-            }
+        if let ResponseEvent::OutputItemDone(ResponseItem::Message { content, .. }) = event
+            && let Some(ContentItem::OutputText { text }) = content.first()
+        {
+            assert_eq!(text, "12,231");
+            found_text = true;
         }
     }
     assert!(found_text, "must emit text OutputItemDone after reasoning");
@@ -641,6 +642,7 @@ async fn messages_stop_sequences_end_to_end() -> Result<()> {
         tools: None,
         tool_choice: None,
         thinking: None,
+        output_config: None,
         temperature: None,
         top_p: None,
         top_k: None,
@@ -666,7 +668,7 @@ async fn messages_stop_sequences_end_to_end() -> Result<()> {
 
     // Verify SSE response handling for stop_sequence stop_reason.
     let transport = FixtureSseTransport::new(body);
-    let client = MessagesClient::new(transport, provider(), NoAuth);
+    let client = MessagesClient::new(transport, provider(), std::sync::Arc::new(NoAuth));
     let stream = client
         .stream_request(request, HeaderMap::new())
         .await
@@ -724,7 +726,7 @@ impl HttpTransport for CapturingTransport {
     }
 
     async fn stream(&self, req: Request) -> Result<StreamResponse, TransportError> {
-        if let Some(body) = req.body {
+        if let Some(codex_client::RequestBody::Json(body)) = req.body {
             *self.captured_body.lock().unwrap() = Some(body);
         }
         let stream = futures::stream::iter(vec![Ok::<Bytes, TransportError>(Bytes::from(
@@ -763,10 +765,8 @@ async fn stop_sequences_serialized_in_request() -> Result<()> {
         ..simple_request()
     };
     let transport = CapturingTransport::new(minimal_sse_response());
-    let client = MessagesClient::new(transport.clone(), provider(), NoAuth);
-    let _ = client
-        .stream_request(request, HeaderMap::new())
-        .await?;
+    let client = MessagesClient::new(transport.clone(), provider(), std::sync::Arc::new(NoAuth));
+    let _ = client.stream_request(request, HeaderMap::new()).await?;
     let body = transport.captured_body();
     let seqs = body["stop_sequences"]
         .as_array()
@@ -783,10 +783,8 @@ async fn stop_sequences_absent_when_none() -> Result<()> {
         ..simple_request()
     };
     let transport = CapturingTransport::new(minimal_sse_response());
-    let client = MessagesClient::new(transport.clone(), provider(), NoAuth);
-    let _ = client
-        .stream_request(request, HeaderMap::new())
-        .await?;
+    let client = MessagesClient::new(transport.clone(), provider(), std::sync::Arc::new(NoAuth));
+    let _ = client.stream_request(request, HeaderMap::new()).await?;
     let body = transport.captured_body();
     assert!(
         body.get("stop_sequences").is_none(),
@@ -801,14 +799,13 @@ async fn stop_sequences_absent_when_none() -> Result<()> {
 async fn thinking_adaptive_serialized_in_request() -> Result<()> {
     let request = MessagesApiRequest {
         thinking: Some(json!({"type": "adaptive"})),
+        output_config: None,
         max_tokens: 128_000,
         ..simple_request()
     };
     let transport = CapturingTransport::new(minimal_sse_response());
-    let client = MessagesClient::new(transport.clone(), provider(), NoAuth);
-    let _ = client
-        .stream_request(request, HeaderMap::new())
-        .await?;
+    let client = MessagesClient::new(transport.clone(), provider(), std::sync::Arc::new(NoAuth));
+    let _ = client.stream_request(request, HeaderMap::new()).await?;
     let body = transport.captured_body();
     assert_eq!(body["thinking"]["type"], "adaptive");
     Ok(())

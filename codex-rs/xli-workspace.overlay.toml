@@ -1,0 +1,81 @@
+# xli-workspace.overlay.toml — xli-only Cargo workspace delta (S-WI-02)
+# Generator: scripts/gen-cargo-workspace.sh
+schema_version = 1
+
+[meta]
+upstream_ref = "upstream/main"
+description = "Additive members and workspace deps for XLI wire island"
+
+[[members]]
+path = "codex-wire-extensions"
+category = "wire-island"
+
+[[members]]
+path = "provider-anthropic"
+category = "wire-island"
+
+[[members]]
+path = "provider-gemini"
+category = "wire-island"
+
+[[members]]
+path = "provider-copilot"
+category = "wire-island"
+
+[[members]]
+path = "provider-registry"
+category = "wire-island"
+
+[[members]]
+path = "copilot"
+category = "wire-island"
+
+[[members]]
+path = "copilot-host"
+category = "harness"
+
+[[members]]
+path = "vector-search"
+category = "tooling"
+
+[[members]]
+path = "cloud-requirements"
+category = "harness"
+
+[[members]]
+path = "debug-client"
+category = "dev"
+
+[[members]]
+path = "prompt"
+category = "harness"
+
+[workspace.dependencies]
+codex-cloud-requirements = { path = "cloud-requirements" }
+codex-copilot-adapter = { path = "copilot" }
+codex-copilot-host = { path = "copilot-host" }
+codex-prompt = { path = "prompt" }
+codex-provider-anthropic = { path = "provider-anthropic" }
+codex-provider-copilot = { path = "provider-copilot" }
+codex-provider-gemini = { path = "provider-gemini" }
+codex-provider-registry = { path = "provider-registry" }
+codex-realtime-webrtc = { path = "realtime-webrtc" }
+codex-vector-search = { path = "vector-search" }
+codex-wire-extensions = { path = "codex-wire-extensions" }
+
+async-trait = "0.1.89"
+bincode = "1"
+fastembed = "4"
+openssh = "0.11"
+text-splitter = { version = "0.29", features = ["markdown"] }
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-json = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-toml-ng = "0.7"
+tree-sitter-typescript = "0.23"
+tree-sitter-yaml = "0.7"

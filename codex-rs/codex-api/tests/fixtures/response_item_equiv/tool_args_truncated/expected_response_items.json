@@ -1,0 +1,13 @@
+{
+  "ri_ids": ["RI-017"],
+  "_doc": "RI-017 — truncated tool args (S-004). FunctionCall surfaces the invalid partial_json verbatim (the harness's downstream retry depends on seeing the raw bytes); the Completed envelope's stop_reason is OVERRIDDEN from 'tool_use' to 'max_tokens' so the model gets a retry signal. Assertion on stop_reason is in tests/pi_projection_equiv.rs (Stage C harness does not extract Completed from items).",
+  "_expected_completed_stop_reason": "max_tokens",
+  "items": [
+    {
+      "type": "function_call",
+      "call_id": "trunc_call_1",
+      "name": "shell",
+      "arguments": "{\"command\": \"ls"
+    }
+  ]
+}

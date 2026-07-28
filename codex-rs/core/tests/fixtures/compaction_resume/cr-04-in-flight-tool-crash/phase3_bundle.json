@@ -1,0 +1,14 @@
+{
+  "apex": {
+    "sessionId": "fixture-session",
+    "projectHash": "fixture-project",
+    "startTime": "2026-01-01T00:00:00.000Z",
+    "lastUpdated": "2026-01-01T00:00:00.000Z",
+    "messages": [],
+    "kind": "main"
+  },
+  "xli": {
+    "compaction_marker": "ContextCompaction",
+    "rollout_path": "fixture.rollout"
+  }
+}

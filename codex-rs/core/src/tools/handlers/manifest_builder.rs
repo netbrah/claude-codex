@@ -47,7 +47,7 @@ pub(super) fn build_manifest_with_stats(
 
     let walker = {
         let stats_arc = Arc::clone(&stats_arc);
-        let root_buf = workspace_root_buf.clone();
+        let root_buf = workspace_root_buf;
         WalkBuilder::new(workspace_root)
             .git_ignore(true)
             .hidden(false)
@@ -61,10 +61,10 @@ pub(super) fn build_manifest_with_stats(
                 if path == root_buf.as_path() {
                     return true;
                 }
-                if let Some(name) = e.file_name().to_str() {
-                    if DENYLIST.contains(&name) {
-                        return false;
-                    }
+                if let Some(name) = e.file_name().to_str()
+                    && DENYLIST.contains(&name)
+                {
+                    return false;
                 }
                 // Prune directories that exceed the size threshold.
                 stats_arc

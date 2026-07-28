@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "$defs": {
+    "FilePath": {
+      "type": "string",
+      "pattern": "^/[a-zA-Z]",
+      "description": "An absolute file path"
+    },
+    "FileEntry": {
+      "type": "object",
+      "properties": {
+        "path": { "$ref": "#/$defs/FilePath" },
+        "content": { "type": "string" }
+      },
+      "required": ["path"]
+    }
+  },
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FileEntry" }
+    }
+  },
+  "required": ["files"]
+}

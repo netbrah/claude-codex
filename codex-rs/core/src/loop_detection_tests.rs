@@ -30,7 +30,7 @@ fn same_tool_call_four_times_no_detection() {
 fn different_tool_calls_no_detection() {
     let mut detector = LoopDetector::new();
     for i in 0..10 {
-        let name = format!("tool_{}", i);
+        let name = format!("tool_{i}");
         assert!(!detector.record_tool_call(&name, "{}"));
     }
 }
@@ -39,7 +39,7 @@ fn different_tool_calls_no_detection() {
 fn same_tool_name_different_args_no_detection() {
     let mut detector = LoopDetector::new();
     for i in 0..10 {
-        let args = format!(r#"{{"path":"file_{}.rs"}}"#, i);
+        let args = format!(r#"{{"path":"file_{i}.rs"}}"#);
         assert!(!detector.record_tool_call("read_file", &args));
     }
 }
@@ -91,7 +91,7 @@ fn content_below_threshold_no_detection() {
 fn different_content_no_detection() {
     let mut detector = LoopDetector::new();
     for i in 0..20 {
-        assert!(!detector.record_content(&format!("message {}", i)));
+        assert!(!detector.record_content(&format!("message {i}")));
     }
 }
 
@@ -129,7 +129,7 @@ fn max_history_does_not_panic() {
     let mut detector = LoopDetector::new();
     // Push more than MAX_HISTORY entries — should never panic.
     for i in 0..200 {
-        detector.record_tool_call("tool", &format!("{}", i));
-        detector.record_content(&format!("content {}", i));
+        detector.record_tool_call("tool", &format!("{i}"));
+        detector.record_content(&format!("content {i}"));
     }
 }

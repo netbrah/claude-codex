@@ -1,5 +1,4 @@
 use codex_file_search::FileSearchOptions;
-use codex_file_search::FileSearchResults;
 use std::num::NonZero;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -76,8 +75,7 @@ async fn finds_nested_files() {
     let dir_path = temp.path();
     let sub = dir_path.join("src").join("components");
     std::fs::create_dir_all(&sub).expect("create subdirs");
-    std::fs::write(sub.join("button.tsx"), b"export const Button = () => {};")
-        .expect("write file");
+    std::fs::write(sub.join("button.tsx"), b"export const Button = () => {};").expect("write file");
     std::fs::write(dir_path.join("index.ts"), b"export {};").expect("write file");
 
     #[expect(clippy::unwrap_used)]

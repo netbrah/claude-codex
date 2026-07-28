@@ -1,0 +1,8 @@
+[
+  {
+    "type": "web_search_call",
+    "id": "srv_equiv_ws",
+    "status": "completed",
+    "action": { "type": "search", "query": "weather NYC" }
+  }
+]

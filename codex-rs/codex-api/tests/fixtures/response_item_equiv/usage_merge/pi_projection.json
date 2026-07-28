@@ -1,0 +1,22 @@
+{
+  "_doc": "Pi-IR projection of usage_merge/messages_sse.json — pi consumes the same SSE and emits a single text block. The token-usage merge invariant (input_tokens=100 + cache_read=50 + output_tokens=42 + thinking_tokens=15) lives on pi's output.usage, NOT in output_content[], and is locked by response_item_equiv.rs::golden_usage_merge_messages_completed_token_usage. Stage C locks the content-side projection so RI-032 is fenced from both directions: content IR (here) AND TokenUsage shape (response_item_equiv.rs).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:text:1023",
+    "event.type:content_block_delta:1047",
+    "delta.type:text_delta:1048",
+    "event.type:content_block_stop:1095",
+    "block.type:text:1100",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_xli_target": "ResponseItem[Message{[OutputText('done')]}]",
+  "output_content": [
+    {
+      "type": "text",
+      "text": "done"
+    }
+  ]
+}

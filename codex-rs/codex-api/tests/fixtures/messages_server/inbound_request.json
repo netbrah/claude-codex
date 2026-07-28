@@ -1,0 +1,10 @@
+{
+  "model": "gpt-4.1",
+  "max_tokens": 1024,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Say hi in one word."
+    }
+  ]
+}

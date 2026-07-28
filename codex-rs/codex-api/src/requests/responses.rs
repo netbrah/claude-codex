@@ -17,14 +17,17 @@ pub(crate) fn attach_item_ids(payload_json: &mut Value, original_items: &[Respon
     };
 
     for (value, item) in items.iter_mut().zip(original_items.iter()) {
-        if let ResponseItem::Reasoning { id, .. }
-        | ResponseItem::Message { id: Some(id), .. }
-        | ResponseItem::WebSearchCall { id: Some(id), .. }
-        | ResponseItem::FunctionCall { id: Some(id), .. }
-        | ResponseItem::ToolSearchCall { id: Some(id), .. }
-        | ResponseItem::LocalShellCall { id: Some(id), .. }
-        | ResponseItem::CustomToolCall { id: Some(id), .. } = item
-        {
+        let item_id = match item {
+            ResponseItem::Reasoning { id, .. } => id.as_ref(),
+            ResponseItem::Message { id: Some(id), .. }
+            | ResponseItem::WebSearchCall { id: Some(id), .. }
+            | ResponseItem::FunctionCall { id: Some(id), .. }
+            | ResponseItem::ToolSearchCall { id: Some(id), .. }
+            | ResponseItem::LocalShellCall { id: Some(id), .. }
+            | ResponseItem::CustomToolCall { id: Some(id), .. } => Some(id),
+            _ => None,
+        };
+        if let Some(id) = item_id {
             if id.is_empty() {
                 continue;
             }

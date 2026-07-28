@@ -1,0 +1,69 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "parts": [{ "text": "delegate research to a subagent" }]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "id": "call_parent_task_001",
+            "name": "task",
+            "args": { "prompt": "find the config file" }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "call_parent_task_001",
+            "name": "task",
+            "response": { "output": "subagent completed" }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "id": "tool_sub_alpha",
+            "name": "read_file",
+            "args": { "path": "/etc/hosts" }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "tool_sub_alpha",
+            "name": "read_file",
+            "response": { "output": "127.0.0.1 localhost" }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "id": "tool_parent_shared",
+            "name": "grep",
+            "args": { "pattern": "localhost" }
+          }
+        }
+      ]
+    },
+    { "role": "user", "parts": [{ "text": "continue on parent thread" }] }
+  ]
+}

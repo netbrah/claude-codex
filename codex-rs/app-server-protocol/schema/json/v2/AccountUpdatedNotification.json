@@ -24,6 +24,13 @@
             "chatgptAuthTokens"
           ],
           "type": "string"
+        },
+        {
+          "description": "Programmatic Codex auth backed by a registered Agent Identity.",
+          "enum": [
+            "agentIdentity"
+          ],
+          "type": "string"
         }
       ]
     },
@@ -33,6 +40,7 @@
         "go",
         "plus",
         "pro",
+        "prolite",
         "team",
         "self_serve_business_usage_based",
         "business",
@@ -40,14 +48,6 @@
         "enterprise",
         "edu",
         "unknown"
-      ],
-      "type": "string"
-    },
-    "WorkspaceRole": {
-      "enum": [
-        "account-owner",
-        "account-admin",
-        "standard-user"
       ],
       "type": "string"
     }
@@ -63,26 +63,10 @@
         }
       ]
     },
-    "isWorkspaceOwner": {
-      "type": [
-        "boolean",
-        "null"
-      ]
-    },
     "planType": {
       "anyOf": [
         {
           "$ref": "#/definitions/PlanType"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "workspaceRole": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/WorkspaceRole"
         },
         {
           "type": "null"

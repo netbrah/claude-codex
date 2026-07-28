@@ -86,12 +86,15 @@ async fn resume_includes_initial_messages_from_rollout_events() -> Result<()> {
 
     codex
         .submit(Op::UserInput {
+            environments: None,
             items: vec![UserInput::Text {
                 text: "Record some messages".into(),
                 text_elements: text_elements.clone(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
         })
         .await?;
 
@@ -108,7 +111,6 @@ async fn resume_includes_initial_messages_from_rollout_events() -> Result<()> {
                 [
                     EventMsg::TurnStarted(_),
                     EventMsg::UserMessage(_),
-                    EventMsg::TokenCount(_),
                     EventMsg::AgentMessage(_),
                     EventMsg::TokenCount(_),
                     EventMsg::TurnComplete(_),
@@ -125,7 +127,6 @@ async fn resume_includes_initial_messages_from_rollout_events() -> Result<()> {
         [
             EventMsg::TurnStarted(started),
             EventMsg::UserMessage(first_user),
-            EventMsg::TokenCount(_),
             EventMsg::AgentMessage(assistant_message),
             EventMsg::TokenCount(_),
             EventMsg::TurnComplete(completed),
@@ -172,12 +173,15 @@ async fn resume_includes_initial_messages_from_reasoning_events() -> Result<()> 
 
     codex
         .submit(Op::UserInput {
+            environments: None,
             items: vec![UserInput::Text {
                 text: "Record reasoning messages".into(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
         })
         .await?;
 
@@ -194,7 +198,6 @@ async fn resume_includes_initial_messages_from_reasoning_events() -> Result<()> 
                 [
                     EventMsg::TurnStarted(_),
                     EventMsg::UserMessage(_),
-                    EventMsg::TokenCount(_),
                     EventMsg::AgentReasoning(_),
                     EventMsg::AgentReasoningRawContent(_),
                     EventMsg::AgentMessage(_),
@@ -213,7 +216,6 @@ async fn resume_includes_initial_messages_from_reasoning_events() -> Result<()> 
         [
             EventMsg::TurnStarted(started),
             EventMsg::UserMessage(first_user),
-            EventMsg::TokenCount(_),
             EventMsg::AgentReasoning(reasoning),
             EventMsg::AgentReasoningRawContent(raw),
             EventMsg::AgentMessage(assistant_message),
@@ -262,12 +264,15 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
 
     codex
         .submit(Op::UserInput {
+            environments: None,
             items: vec![UserInput::Text {
                 text: "Record initial instructions".into(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
         })
         .await?;
     wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
@@ -297,18 +302,21 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     .await;
 
     let mut resume_builder = test_codex().with_config(|config| {
-        config.model = Some("gpt-5.2-codex".to_string());
+        config.model = Some("gpt-5.3-codex".to_string());
     });
     let resumed = resume_builder.resume(&server, home, rollout_path).await?;
     resumed
         .codex
         .submit(Op::UserInput {
+            environments: None,
             items: vec![UserInput::Text {
                 text: "Resume with different model".into(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
         })
         .await?;
     wait_for_event(&resumed.codex, |event| {
@@ -319,12 +327,15 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     resumed
         .codex
         .submit(Op::UserInput {
+            environments: None,
             items: vec![UserInput::Text {
                 text: "Second turn after resume".into(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
         })
         .await?;
     wait_for_event(&resumed.codex, |event| {
@@ -390,12 +401,15 @@ async fn resume_model_switch_is_not_duplicated_after_pre_turn_override() -> Resu
     .await;
     codex
         .submit(Op::UserInput {
+            environments: None,
             items: vec![UserInput::Text {
                 text: "Record initial instructions".into(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
         })
         .await?;
     wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
@@ -412,34 +426,29 @@ async fn resume_model_switch_is_not_duplicated_after_pre_turn_override() -> Resu
     .await;
 
     let mut resume_builder = test_codex().with_config(|config| {
-        config.model = Some("gpt-5.2-codex".to_string());
+        config.model = Some("gpt-5.3-codex".to_string());
     });
     let resumed = resume_builder.resume(&server, home, rollout_path).await?;
-    resumed
-        .codex
-        .submit(Op::OverrideTurnContext {
-            cwd: None,
-            approval_policy: None,
-            approvals_reviewer: None,
-            sandbox_policy: None,
-            windows_sandbox_level: None,
-            model: Some("gpt-5.1-codex-max".to_string()),
-            effort: None,
-            summary: None,
-            service_tier: None,
-            collaboration_mode: None,
-            personality: None,
-        })
-        .await?;
+    core_test_support::submit_thread_settings(
+        &resumed.codex,
+        codex_protocol::protocol::ThreadSettingsOverrides {
+            model: Some("gpt-5.4".to_string()),
+            ..Default::default()
+        },
+    )
+    .await?;
     resumed
         .codex
         .submit(Op::UserInput {
+            environments: None,
             items: vec![UserInput::Text {
                 text: "first turn after override".into(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
         })
         .await?;
     wait_for_event(&resumed.codex, |event| {

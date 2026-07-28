@@ -1,0 +1,6 @@
+# Fork-surface ratchet baseline for xli GHA (HCE-04b + S-WI-06).
+# Keep in sync with cli-ops/sortie-board/xli-v5/RATCHET-BASELINE.lock
+# Updated after xli-v4-upstream HCE bundle merge @ 9191545914 (2026-06-26).
+
+non_island_modified=272
+wire_adjacent_modified=12

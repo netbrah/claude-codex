@@ -1,17 +1,21 @@
 //! Session-wide mutable state.
 
-use codex_protocol::models::PermissionProfile;
+use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::ResponseItem;
 use codex_sandboxing::policy_transforms::merge_permission_profiles;
-use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 
-use crate::codex::PreviousTurnSettings;
-use crate::codex::SessionConfiguration;
+use super::AdditionalContextStore;
+use super::auto_compact_window::AutoCompactWindow;
+use super::auto_compact_window::AutoCompactWindowSnapshot;
 use crate::context_manager::ContextManager;
 use crate::loop_detection::LoopDetector;
+use crate::session::PreviousTurnSettings;
+use crate::session::session::SessionConfiguration;
+use crate::session::subagent_tool_state::SubagentToolState;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
-use codex_protocol::plan_tool::PlanState;
+use crate::context::PlanState;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
@@ -24,17 +28,19 @@ pub(crate) struct SessionState {
     pub(crate) history: ContextManager,
     pub(crate) latest_rate_limits: Option<RateLimitSnapshot>,
     pub(crate) server_reasoning_included: bool,
-    pub(crate) dependency_env: HashMap<String, String>,
     pub(crate) mcp_dependency_prompted: HashSet<String>,
+    pub(crate) additional_context: AdditionalContextStore,
     /// Settings used by the latest regular user turn, used for turn-to-turn
     /// model/realtime handling on subsequent regular turns (including full-context
     /// reinjection after resume or `/compact`).
     previous_turn_settings: Option<PreviousTurnSettings>,
+    /// Runtime accounting state for the active auto-compaction window.
+    auto_compact_window: AutoCompactWindow,
     /// Startup prewarmed session prepared during session initialization.
     pub(crate) startup_prewarm: Option<SessionStartupPrewarmHandle>,
     pub(crate) active_connector_selection: HashSet<String>,
-    pub(crate) pending_session_start_source: Option<codex_hooks::SessionStartSource>,
-    granted_permissions: Option<PermissionProfile>,
+    pub(crate) pending_session_start_sources: VecDeque<codex_hooks::SessionStartSource>,
+    granted_permissions: Option<AdditionalPermissionProfile>,
     /// Counter for consecutive turns that produced no assistant message.
     /// Reset on any successful (non-null) completion. Used as circuit breaker
     /// to detect death spirals where the model repeatedly produces empty responses.
@@ -43,6 +49,9 @@ pub(crate) struct SessionState {
     pub(crate) loop_detector: LoopDetector,
     /// Latest plan state from `update_plan` calls, re-injected each turn.
     plan_state: PlanState,
+    /// Per-owner tool_use_id answered/seen tracking for subagent fold-in (HCE-02b).
+    pub(crate) subagent_tool_state: SubagentToolState,
+    next_turn_is_first: bool,
 }
 
 impl SessionState {
@@ -54,16 +63,19 @@ impl SessionState {
             history,
             latest_rate_limits: None,
             server_reasoning_included: false,
-            dependency_env: HashMap::new(),
             mcp_dependency_prompted: HashSet::new(),
+            additional_context: AdditionalContextStore::default(),
             previous_turn_settings: None,
+            auto_compact_window: AutoCompactWindow::new(),
             startup_prewarm: None,
             active_connector_selection: HashSet::new(),
-            pending_session_start_source: None,
+            pending_session_start_sources: VecDeque::new(),
             granted_permissions: None,
             consecutive_null_completions: 0,
             loop_detector: LoopDetector::new(),
             plan_state: PlanState::default(),
+            subagent_tool_state: SubagentToolState::default(),
+            next_turn_is_first: true,
         }
     }
 
@@ -86,6 +98,16 @@ impl SessionState {
         self.previous_turn_settings = previous_turn_settings;
     }
 
+    pub(crate) fn set_next_turn_is_first(&mut self, value: bool) {
+        self.next_turn_is_first = value;
+    }
+
+    pub(crate) fn take_next_turn_is_first(&mut self) -> bool {
+        let is_first_turn = self.next_turn_is_first;
+        self.next_turn_is_first = false;
+        is_first_turn
+    }
+
     pub(crate) fn clone_history(&self) -> ContextManager {
         self.history.clone()
     }
@@ -95,13 +117,24 @@ impl SessionState {
         items: Vec<ResponseItem>,
         reference_context_item: Option<TurnContextItem>,
     ) {
-        self.history.replace(items);
+        self.history.replace(items.clone());
         self.history
             .set_reference_context_item(reference_context_item);
+        self.auto_compact_window.clear_prefill();
+        self.subagent_tool_state =
+            crate::session::subagent_tool_state::rehydrate_subagent_tool_state(&items);
     }
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {
         self.history.set_token_info(info);
+    }
+
+    /// Seed the model context window in the existing token_info without
+    /// altering token usage counters. Used at session startup to propagate
+    /// the enriched context window from model resolution so /status shows
+    /// the correct value before the first turn.
+    pub(crate) fn seed_model_context_window(&mut self, context_window: i64) {
+        self.history.seed_model_context_window(context_window);
     }
 
     pub(crate) fn set_reference_context_item(&mut self, item: Option<TurnContextItem>) {
@@ -119,6 +152,26 @@ impl SessionState {
         model_context_window: Option<i64>,
     ) {
         self.history.update_token_info(usage, model_context_window);
+    }
+
+    pub(crate) fn ensure_auto_compact_window_server_prefill_from_usage(
+        &mut self,
+        usage: &TokenUsage,
+    ) {
+        self.auto_compact_window
+            .ensure_server_observed_prefill_from_usage(usage);
+    }
+
+    pub(crate) fn set_auto_compact_window_estimated_prefill(&mut self, tokens: i64) {
+        self.auto_compact_window.set_estimated_prefill(tokens);
+    }
+
+    pub(crate) fn start_next_auto_compact_window(&mut self) {
+        self.auto_compact_window.start_next();
+    }
+
+    pub(crate) fn auto_compact_window_snapshot(&self) -> AutoCompactWindowSnapshot {
+        self.auto_compact_window.snapshot()
     }
 
     pub(crate) fn token_info(&self) -> Option<TokenUsageInfo> {
@@ -166,16 +219,6 @@ impl SessionState {
         self.mcp_dependency_prompted.clone()
     }
 
-    pub(crate) fn set_dependency_env(&mut self, values: HashMap<String, String>) {
-        for (key, value) in values {
-            self.dependency_env.insert(key, value);
-        }
-    }
-
-    pub(crate) fn dependency_env(&self) -> HashMap<String, String> {
-        self.dependency_env.clone()
-    }
-
     pub(crate) fn set_session_startup_prewarm(
         &mut self,
         startup_prewarm: SessionStartupPrewarmHandle,
@@ -206,25 +249,25 @@ impl SessionState {
         self.active_connector_selection.clear();
     }
 
-    pub(crate) fn set_pending_session_start_source(
+    pub(crate) fn queue_pending_session_start_source(
         &mut self,
-        value: Option<codex_hooks::SessionStartSource>,
+        value: codex_hooks::SessionStartSource,
     ) {
-        self.pending_session_start_source = value;
+        self.pending_session_start_sources.push_back(value);
     }
 
     pub(crate) fn take_pending_session_start_source(
         &mut self,
     ) -> Option<codex_hooks::SessionStartSource> {
-        self.pending_session_start_source.take()
+        self.pending_session_start_sources.pop_front()
     }
 
-    pub(crate) fn record_granted_permissions(&mut self, permissions: PermissionProfile) {
+    pub(crate) fn record_granted_permissions(&mut self, permissions: AdditionalPermissionProfile) {
         self.granted_permissions =
             merge_permission_profiles(self.granted_permissions.as_ref(), Some(&permissions));
     }
 
-    pub(crate) fn granted_permissions(&self) -> Option<PermissionProfile> {
+    pub(crate) fn granted_permissions(&self) -> Option<AdditionalPermissionProfile> {
         self.granted_permissions.clone()
     }
 
@@ -249,9 +292,6 @@ fn merge_rate_limit_fields(
     }
     if snapshot.credits.is_none() {
         snapshot.credits = previous.and_then(|prior| prior.credits.clone());
-    }
-    if snapshot.spend_control.is_none() {
-        snapshot.spend_control = previous.and_then(|prior| prior.spend_control.clone());
     }
     if snapshot.plan_type.is_none() {
         snapshot.plan_type = previous.and_then(|prior| prior.plan_type);

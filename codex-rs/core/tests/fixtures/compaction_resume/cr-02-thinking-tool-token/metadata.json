@@ -1,0 +1,10 @@
+{
+  "fixture_id": "CR-02",
+  "hi_rows": ["HI-C6-003", "HI-C6-005"],
+  "hce05_seed": "eq-04-thinking-tool-normal",
+  "bundle_schema": "conversation-record-v1",
+  "requires_hce02": false,
+  "spokes": ["apex", "xli"],
+  "phase": 2,
+  "hce05_seed_mode": "topology-only"
+}

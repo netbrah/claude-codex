@@ -1,0 +1,12 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "read the file"
+        }
+      ]
+    }
+  ]
+}

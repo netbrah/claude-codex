@@ -1,0 +1,8 @@
+{
+  "mode": "multi_pass",
+  "passes": 2,
+  "force": true,
+  "mock_token_count": 900000,
+  "mock_summary": "<state_snapshot>\nHCE-06 deterministic compaction summary for fixture goldens.\n</state_snapshot>",
+  "mock_ack": "Got it. Thanks for the additional context!"
+}

@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path to the directory to search in. Defaults to the current working directory.",
+      "type": "string"
+    },
+    "pattern": {
+      "description": "Fuzzy search pattern to match against file and directory paths.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pattern"
+  ],
+  "type": "object"
+}

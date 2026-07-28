@@ -1,0 +1,25 @@
+---
+source: provider-gemini/tests/schema_snapshots.rs
+expression: "sanitize_fixture(include_str!(\"fixtures/tool_view_image.json\"))"
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "description": "Optional detail override. Supported values are `high` and `original`; omit this field for default high resized behavior. Use `original` to preserve the file's original resolution instead of resizing to fit. This is important when high-fidelity image perception or precise localization is needed, especially for CUA agents.",
+      "enum": [
+        "high",
+        "original"
+      ],
+      "type": "string"
+    },
+    "path": {
+      "description": "Local filesystem path to an image file",
+      "type": "string"
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "type": "object"
+}
