@@ -1,0 +1,81 @@
+# ===================================================================
+# xli — Google Gemini (generativelanguage.googleapis.com) example
+# ===================================================================
+#
+# Copy to ~/.xli/config.toml (or $XLI_HOME/config.toml).
+#
+# Prerequisite:
+#   export GEMINI_API_KEY="your-api-key-here"
+#
+# Launch:
+#   xli                        # uses the top-level defaults below
+#   xli -p gemini-pro
+#   xli -p gemini-flash
+#   xli -m gemini-2.5-pro      # ad-hoc model override
+#
+# ===================================================================
+
+# ── Defaults for a bare `xli` invocation ───────────────────────────
+model = "gemini-3.1-pro-preview"
+model_provider = "gemini"
+model_reasoning_effort = "high"       # maps to thinkingConfig.thinkingBudget
+model_reasoning_summary = "detailed"
+web_search = "disabled"              # "live" enables Google Search grounding
+
+# ── Provider ───────────────────────────────────────────────────────
+[model_providers.gemini]
+name = "Google Gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+wire_api = "generate_content"
+requires_openai_auth = false
+
+# Gemini authenticates with the `x-goog-api-key` header, NOT
+# `Authorization: Bearer`. `env_http_headers` maps a header name to the
+# environment variable holding its value.
+env_http_headers = { "x-goog-api-key" = "GEMINI_API_KEY" }
+
+# Do NOT set `env_key` here — it would send the value as
+# `Authorization: Bearer <key>`, which this endpoint rejects.
+#
+# Do NOT use `query_params = { key = "..." }` as an alternative. The
+# request path already ends in `?alt=sse`, and query params are appended
+# with a second `?`, producing a malformed URL.
+
+# ── Profiles (`xli -p <name>`) ─────────────────────────────────────
+
+[profiles.gemini-pro]
+model = "gemini-3.1-pro-preview"
+model_provider = "gemini"
+model_reasoning_effort = "high"
+
+[profiles.gemini-flash]
+model = "gemini-3-flash-preview"
+model_provider = "gemini"
+model_reasoning_effort = "medium"
+
+[profiles.gemini-lite]
+model = "gemini-3.1-flash-lite-preview"
+model_provider = "gemini"
+model_reasoning_effort = "none"
+
+# Gemini 2.5 profiles. These currently get the full 65,536-token output
+# ceiling, whereas Gemini 3 slugs are capped at 8,192 — see
+# README.md → "Known limitations".
+[profiles.gemini-25-pro]
+model = "gemini-2.5-pro"
+model_provider = "gemini"
+model_reasoning_effort = "high"
+
+[profiles.gemini-25-flash]
+model = "gemini-2.5-flash"
+model_provider = "gemini"
+model_reasoning_effort = "medium"
+
+# ── Telemetry ──────────────────────────────────────────────────────
+[otel]
+metrics_exporter = "none"
+log_user_prompt = false
+
+# ── TUI ────────────────────────────────────────────────────────────
+[tui]
+theme = "nord"
