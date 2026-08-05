@@ -1,0 +1,19 @@
+{
+  "fixture_id": "EQ-21",
+  "hi_rows": [
+    "HI-C5-009"
+  ],
+  "ri_rows": [
+    "RI-016"
+  ],
+  "wires": [
+    "anthropic"
+  ],
+  "spokes": [
+    "apex",
+    "xli"
+  ],
+  "fidelity": "byte-equal",
+  "source": "synthetic parameterless tool_use",
+  "hce05_seed": null
+}

@@ -1,0 +1,12 @@
+[
+  "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_paramless\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4.6\",\"usage\":{\"input_tokens\":12,\"output_tokens\":0}}}",
+  "",
+  "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"equiv_call_paramless\",\"name\":\"get_time\",\"input\":{}}}",
+  "",
+  "data: {\"type\":\"content_block_stop\",\"index\":0}",
+  "",
+  "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}",
+  "",
+  "data: {\"type\":\"message_stop\"}",
+  ""
+]

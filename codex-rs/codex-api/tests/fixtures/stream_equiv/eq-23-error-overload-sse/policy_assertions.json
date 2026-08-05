@@ -1,0 +1,8 @@
+{
+  "fixture_id": "EQ-23",
+  "hi_rows": [],
+  "expected": {
+    "error_kind": "server_overloaded"
+  },
+  "rationale": "S-ERROR-TYPED overloaded_error must map to ApiError::ServerOverloaded"
+}
