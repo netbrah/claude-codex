@@ -281,6 +281,17 @@ async fn golden_usage_merge_cross_wire_token_usage_equiv() {
 }
 
 #[tokio::test]
+async fn golden_cache_creation_ttl_split_messages_completed_token_usage() {
+    let lines = load_sse_lines("cache_creation_ttl_split");
+    let usage = extract_completed_token_usage(&collect_messages_events(&lines).await);
+    let expected = load_expected_token_usage("cache_creation_ttl_split");
+    assert_eq!(
+        usage, expected,
+        "EQ-22: cache_creation TTL bands must merge into Completed token usage"
+    );
+}
+
+#[tokio::test]
 async fn golden_thinking_block_roundtrip_messages() {
     // Locks the canonical Anthropic thinking-block round-trip on the
     // /messages wire. The single fixture exercises every thinking-grain

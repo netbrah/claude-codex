@@ -45,6 +45,7 @@ struct PolicyExpected {
     tool_args_state: Option<String>,
     #[serde(default)]
     no_throw: bool,
+    error_kind: Option<String>,
 }
 
 fn fixture_dir(name: &str) -> PathBuf {
@@ -194,6 +195,26 @@ fn policy_path(dir: &Path) -> Option<PathBuf> {
 }
 
 fn assert_policy(events: &[Result<ResponseEvent, ApiError>], policy: &PolicyAssertions) {
+    if policy.expected.no_throw {
+        let first_err = events
+            .iter()
+            .find_map(|ev| ev.as_ref().err())
+            .map(ToString::to_string);
+        assert!(
+            first_err.is_none(),
+            "policy expects no stream error, found {:?}",
+            first_err
+        );
+    }
+    if let Some(expected_error) = policy.expected.error_kind.as_deref() {
+        let found = events.iter().any(|ev| match (expected_error, ev) {
+            ("server_overloaded", Err(ApiError::ServerOverloaded)) => true,
+            ("rate_limit", Err(ApiError::RateLimit(_))) => true,
+            ("stream", Err(ApiError::Stream(_))) => true,
+            _ => false,
+        });
+        assert!(found, "expected {expected_error} error in stream events");
+    }
     if let Some(expected_stop) = policy.expected.stop_reason.as_deref() {
         assert_eq!(
             extract_completed_stop_reason(events).as_deref(),
@@ -307,3 +328,6 @@ equiv_test!(eq_14_redacted_thinking, "eq-14-redacted-thinking");
 equiv_test!(eq_15_tool_response_only, "eq-15-tool-response-only");
 equiv_test!(eq_16_thinking_tool_response, "eq-16-thinking-tool-response");
 equiv_test!(eq_20_tool_truncated_mid, "eq-20-tool-truncated-mid");
+equiv_test!(eq_21_parameterless_tool, "eq-21-parameterless-tool");
+equiv_test!(eq_23_error_overload_sse, "eq-23-error-overload-sse");
+equiv_test!(eq_24_error_rate_limit_sse, "eq-24-error-rate-limit-sse");

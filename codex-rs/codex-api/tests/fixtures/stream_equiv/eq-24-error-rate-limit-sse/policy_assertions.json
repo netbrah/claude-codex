@@ -1,0 +1,8 @@
+{
+  "fixture_id": "EQ-24",
+  "hi_rows": [],
+  "expected": {
+    "error_kind": "rate_limit"
+  },
+  "rationale": "S-ERROR-TYPED rate_limit_error must map to ApiError::RateLimit"
+}

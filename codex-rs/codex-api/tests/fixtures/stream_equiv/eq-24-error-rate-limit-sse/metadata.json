@@ -1,0 +1,14 @@
+{
+  "fixture_id": "EQ-24",
+  "hi_rows": [],
+  "ri_rows": [],
+  "wires": [
+    "anthropic"
+  ],
+  "spokes": [
+    "xli"
+  ],
+  "fidelity": "policy-assert",
+  "source": "codex-api/src/sse/messages.rs::test_rate_limit_error",
+  "hce05_seed": null
+}

@@ -1,0 +1,11 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "equiv_call_paramless",
+      "name": "get_time",
+      "input": {}
+    }
+  ]
+}
