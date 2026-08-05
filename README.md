@@ -95,16 +95,19 @@ Built on the [OpenAI codex-rs](https://github.com/openai/codex) workspace (Apach
 git clone https://github.com/netbrah/claude-codex.git
 cd claude-codex/codex-rs
 cargo build --release
-# Binary: target/release/codex
+# Binary: target/release/codex (the packaged launcher exposes this as `xli`)
 ```
 
 ### Configure
 
-xli reads `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). Example configs are in [`examples/`](examples/):
+xli typically reads `~/.xli/config.toml` via the launcher bridge (or
+`$CODEX_HOME/config.toml` if you set it explicitly). Example configs are in
+[`examples/`](examples/):
 
 ```bash
 # Copy an example and edit
-cp examples/anthropic.toml ~/.codex/config.toml
+mkdir -p ~/.xli
+cp examples/anthropic.toml ~/.xli/config.toml
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
@@ -168,6 +171,16 @@ model_provider = "gemini"
 </details>
 
 See [`examples/README.md`](examples/README.md) for full configuration details including environment variables, profile switching, and auth notes.
+
+### Documentation
+
+For a full local documentation map, start with [`docs/README.md`](docs/README.md).
+Recommended first stops:
+
+- [`docs/getting-started.md`](docs/getting-started.md)
+- [`docs/authentication.md`](docs/authentication.md)
+- [`docs/config.md`](docs/config.md)
+- [`docs/sandbox.md`](docs/sandbox.md)
 
 ### Run
 
