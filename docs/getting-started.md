@@ -93,15 +93,15 @@ xli exec "Explain the provider abstraction in codex-api/"
 
 The most important first-run commands are:
 
-| Command | What it does |
-|---|---|
-| `xli` | Launch the interactive TUI |
-| `xli -p <profile>` | Switch model/provider bundles defined in `config.toml` |
-| `xli exec <prompt>` | Run a non-interactive task |
-| `xli login` | Start managed OpenAI/ChatGPT auth |
-| `xli logout` | Remove managed auth state |
-| `xli sandbox <cmd>` | Run a command inside the host sandbox |
-| `xli resume --last` | Resume the most recent saved session |
+| Command             | What it does                                           |
+| ------------------- | ------------------------------------------------------ |
+| `xli`               | Launch the interactive TUI                             |
+| `xli -p <profile>`  | Switch model/provider bundles defined in `config.toml` |
+| `xli exec <prompt>` | Run a non-interactive task                             |
+| `xli login`         | Start managed OpenAI/ChatGPT auth                      |
+| `xli logout`        | Remove managed auth state                              |
+| `xli sandbox <cmd>` | Run a command inside the host sandbox                  |
+| `xli resume --last` | Resume the most recent saved session                   |
 
 Inside the TUI, type `/` to open the slash-command picker. Start with
 `/model`, `/permissions`, `/status`, `/review`, and `/compact`.

@@ -36,15 +36,15 @@ place for one-off experiments.
 
 These are the settings most users touch first:
 
-| Field | Purpose |
-|---|---|
-| `model` | Default model slug |
-| `model_provider` | Which provider definition to use |
-| `model_reasoning_effort` | Reasoning budget / thinking depth |
+| Field                     | Purpose                                 |
+| ------------------------- | --------------------------------------- |
+| `model`                   | Default model slug                      |
+| `model_provider`          | Which provider definition to use        |
+| `model_reasoning_effort`  | Reasoning budget / thinking depth       |
 | `model_reasoning_summary` | Whether reasoning summaries are emitted |
-| `approval_policy` | When the user must approve actions |
-| `sandbox_mode` | Filesystem/process sandbox profile |
-| `web_search` | Search mode for models that support it |
+| `approval_policy`         | When the user must approve actions      |
+| `sandbox_mode`            | Filesystem/process sandbox profile      |
+| `web_search`              | Search mode for models that support it  |
 
 ## Model providers
 
@@ -145,9 +145,9 @@ This setting is supported in `requirements.toml`, not in `config.toml`.
 
 ## Related files
 
-| Need | Read |
-|---|---|
-| Copy-paste examples | [example-config.md](example-config.md) |
-| Provider-native examples | [`../examples/README.md`](../examples/README.md) |
-| Sandbox and approval behavior | [sandbox.md](sandbox.md) |
-| Execpolicy rules | [execpolicy.md](execpolicy.md) |
+| Need                          | Read                                             |
+| ----------------------------- | ------------------------------------------------ |
+| Copy-paste examples           | [example-config.md](example-config.md)           |
+| Provider-native examples      | [`../examples/README.md`](../examples/README.md) |
+| Sandbox and approval behavior | [sandbox.md](sandbox.md)                         |
+| Execpolicy rules              | [execpolicy.md](execpolicy.md)                   |

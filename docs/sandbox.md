@@ -10,10 +10,10 @@ You usually want to think about both together.
 
 ## Sandbox modes
 
-| Mode | Intended use |
-|---|---|
-| `read-only` | Inspect the repo without changing files |
-| `workspace-write` | Allow edits inside the workspace while keeping stronger isolation |
+| Mode                 | Intended use                                                                   |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `read-only`          | Inspect the repo without changing files                                        |
+| `workspace-write`    | Allow edits inside the workspace while keeping stronger isolation              |
 | `danger-full-access` | Disable the normal sandbox; only use inside another trusted isolation boundary |
 
 The CLI also exposes a dedicated flag:
@@ -32,12 +32,12 @@ In the XLI launcher, that usually means `~/.xli/memories`.
 
 Common policies include:
 
-| Policy | Behavior |
-|---|---|
-| `on-request` | Ask when a command needs escalation or broader permissions |
-| `on-failure` | Try in the sandbox first, then escalate if needed |
-| `unless-trusted` | Escalate most commands except a small allowlist of safe reads |
-| `never` | Do not request approvals; stay within the configured sandbox envelope |
+| Policy           | Behavior                                                              |
+| ---------------- | --------------------------------------------------------------------- |
+| `on-request`     | Ask when a command needs escalation or broader permissions            |
+| `on-failure`     | Try in the sandbox first, then escalate if needed                     |
+| `unless-trusted` | Escalate most commands except a small allowlist of safe reads         |
+| `never`          | Do not request approvals; stay within the configured sandbox envelope |
 
 Exact behavior can vary with the environment, but this is the right mental
 model when you are choosing a session profile.

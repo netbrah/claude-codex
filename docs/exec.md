@@ -39,14 +39,14 @@ git diff | xli exec "Summarize this patch"
 
 ## High-value flags
 
-| Flag | Purpose |
-|---|---|
-| `--ephemeral` | Run without persisting session rollout files |
-| `--json` | Emit JSONL events to stdout |
-| `--output-last-message FILE` | Write the final assistant message to a file |
-| `--ignore-user-config` | Skip loading `$CODEX_HOME/config.toml` |
-| `--ignore-rules` | Skip user/project execpolicy `.rules` files |
-| `--skip-git-repo-check` | Allow execution outside a Git repo |
+| Flag                         | Purpose                                      |
+| ---------------------------- | -------------------------------------------- |
+| `--ephemeral`                | Run without persisting session rollout files |
+| `--json`                     | Emit JSONL events to stdout                  |
+| `--output-last-message FILE` | Write the final assistant message to a file  |
+| `--ignore-user-config`       | Skip loading `$CODEX_HOME/config.toml`       |
+| `--ignore-rules`             | Skip user/project execpolicy `.rules` files  |
+| `--skip-git-repo-check`      | Allow execution outside a Git repo           |
 
 ## Review and resume subcommands
 

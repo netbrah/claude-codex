@@ -5,10 +5,10 @@ Start there before you build a config from scratch.
 
 ## Included examples
 
-| File | Best for |
-|---|---|
-| [`../examples/anthropic.toml`](../examples/anthropic.toml) | Single-provider Claude setup |
-| [`../examples/gemini.toml`](../examples/gemini.toml) | Single-provider Gemini setup |
+| File                                                                 | Best for                                        |
+| -------------------------------------------------------------------- | ----------------------------------------------- |
+| [`../examples/anthropic.toml`](../examples/anthropic.toml)           | Single-provider Claude setup                    |
+| [`../examples/gemini.toml`](../examples/gemini.toml)                 | Single-provider Gemini setup                    |
 | [`../examples/multi-provider.toml`](../examples/multi-provider.toml) | One config with multiple providers and profiles |
 
 ## Minimal Anthropic example
@@ -87,12 +87,12 @@ The shipped examples also demonstrate a few high-value settings:
 
 ## Common mistakes
 
-| Mistake | Fix |
-|---|---|
-| Using `env_key` for Anthropic or Gemini | Use `env_http_headers` instead |
-| Switching providers with `-m` alone | Use profiles, or set both `model` and `model_provider` |
-| Forgetting `requires_openai_auth = false` | Add it for provider-native endpoints |
-| Writing secrets into `config.toml` | Keep them in environment variables |
+| Mistake                                   | Fix                                                    |
+| ----------------------------------------- | ------------------------------------------------------ |
+| Using `env_key` for Anthropic or Gemini   | Use `env_http_headers` instead                         |
+| Switching providers with `-m` alone       | Use profiles, or set both `model` and `model_provider` |
+| Forgetting `requires_openai_auth = false` | Add it for provider-native endpoints                   |
+| Writing secrets into `config.toml`        | Keep them in environment variables                     |
 
 See [config.md](config.md) for the full layering model and
 [authentication.md](authentication.md) for auth-specific guidance.

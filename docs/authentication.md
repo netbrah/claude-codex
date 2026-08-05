@@ -5,12 +5,12 @@ Which path you use depends on the model provider configured for the session.
 
 ## Auth modes at a glance
 
-| Mode | Best for | How it is configured |
-|---|---|---|
-| Managed OpenAI / ChatGPT auth | Upstream Codex/OpenAI flows | `xli login` / `codex login` |
-| API key on stdin | Non-interactive OpenAI setup | `xli login --with-api-key` |
-| Access token on stdin | Advanced managed-token workflows | `xli login --with-access-token` |
-| Provider-native headers | Anthropic, Gemini, or custom providers | `config.toml` + environment variables |
+| Mode                          | Best for                               | How it is configured                  |
+| ----------------------------- | -------------------------------------- | ------------------------------------- |
+| Managed OpenAI / ChatGPT auth | Upstream Codex/OpenAI flows            | `xli login` / `codex login`           |
+| API key on stdin              | Non-interactive OpenAI setup           | `xli login --with-api-key`            |
+| Access token on stdin         | Advanced managed-token workflows       | `xli login --with-access-token`       |
+| Provider-native headers       | Anthropic, Gemini, or custom providers | `config.toml` + environment variables |
 
 ## Managed login flow
 
@@ -93,12 +93,12 @@ Use provider-native env vars when:
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
-| Prompted to log in even though you set a provider block | `requires_openai_auth = false` is missing from the provider config |
-| `401` from Anthropic or Gemini | You used `env_key` instead of `env_http_headers`, or the env var is unset |
-| Requests go to OpenAI unexpectedly | `model_provider` does not match a configured `[model_providers.<name>]` entry |
-| Login works in one environment but not another | `CODEX_HOME`/`XLI_HOME` points at a different state directory |
+| Symptom                                                 | Likely cause                                                                  |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Prompted to log in even though you set a provider block | `requires_openai_auth = false` is missing from the provider config            |
+| `401` from Anthropic or Gemini                          | You used `env_key` instead of `env_http_headers`, or the env var is unset     |
+| Requests go to OpenAI unexpectedly                      | `model_provider` does not match a configured `[model_providers.<name>]` entry |
+| Login works in one environment but not another          | `CODEX_HOME`/`XLI_HOME` points at a different state directory                 |
 
 For working provider-native examples, see [example-config.md](example-config.md)
 and [`../examples/README.md`](../examples/README.md).
