@@ -56,34 +56,34 @@ Built on the [OpenAI codex-rs](https://github.com/openai/codex) workspace (Apach
 
 ### Crate Highlights
 
-| Crate | Role |
-|---|---|
-| `core/` | Session runtime — turn loop, tool dispatch, history compaction, streaming aggregation |
-| `codex-api/` | Wire protocol layer — `/messages` and `/responses` endpoints, SSE parsers, request builders |
-| `protocol/` | Shared types — `ModelInfo`, `ProviderCaps`, message history, config types |
+| Crate             | Role                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `core/`           | Session runtime — turn loop, tool dispatch, history compaction, streaming aggregation       |
+| `codex-api/`      | Wire protocol layer — `/messages` and `/responses` endpoints, SSE parsers, request builders |
+| `protocol/`       | Shared types — `ModelInfo`, `ProviderCaps`, message history, config types                   |
 | `models-manager/` | Model registry — slug resolution, provider caps, LiteLLM enrichment, context window cascade |
-| `config/` | TOML config schema — profiles, overrides, per-provider auth, sandbox policy, MCP config |
-| `tools/` | Tool registry — apply_patch, grep, find_files, shell exec, dynamic tools, MCP bridge |
-| `sandboxing/` | Process isolation — Linux seccomp, macOS seatbelt, Windows sandbox |
-| `execpolicy/` | Execution policy DSL — declarative command allow/deny rules |
-| `tui/` | Terminal UI — streaming output, context gauge, approval prompts |
-| `mcp-server/` | MCP (Model Context Protocol) server — exposes tools to external MCP clients |
-| `rmcp-client/` | MCP client — connects to external MCP servers as tool sources |
+| `config/`         | TOML config schema — profiles, overrides, per-provider auth, sandbox policy, MCP config     |
+| `tools/`          | Tool registry — apply_patch, grep, find_files, shell exec, dynamic tools, MCP bridge        |
+| `sandboxing/`     | Process isolation — Linux seccomp, macOS seatbelt, Windows sandbox                          |
+| `execpolicy/`     | Execution policy DSL — declarative command allow/deny rules                                 |
+| `tui/`            | Terminal UI — streaming output, context gauge, approval prompts                             |
+| `mcp-server/`     | MCP (Model Context Protocol) server — exposes tools to external MCP clients                 |
+| `rmcp-client/`    | MCP client — connects to external MCP servers as tool sources                               |
 
 ---
 
 ## Feature Matrix
 
-| Capability | Anthropic `/messages` | OpenAI `/responses` | Gemini |
-|---|:---:|:---:|:---:|
-| Streaming (SSE) | ✓ | ✓ | ✓ |
-| Tool calls | ✓ | ✓ | ✓ |
-| Reasoning / thinking blocks | ✓ | ✓ | ✓ |
-| Prompt caching (`cache_control`) | ✓ | — | — |
-| Multi-turn history translation | ✓ | — | ✓ |
-| Configurable profiles | ✓ | ✓ | ✓ |
-| Context window management | ✓ | ✓ | ✓ |
-| Auto-compaction | ✓ | ✓ | ✓ |
+| Capability                       | Anthropic `/messages` | OpenAI `/responses` | Gemini |
+| -------------------------------- | :-------------------: | :-----------------: | :----: |
+| Streaming (SSE)                  |           ✓           |          ✓          |   ✓    |
+| Tool calls                       |           ✓           |          ✓          |   ✓    |
+| Reasoning / thinking blocks      |           ✓           |          ✓          |   ✓    |
+| Prompt caching (`cache_control`) |           ✓           |          —          |   —    |
+| Multi-turn history translation   |           ✓           |          —          |   ✓    |
+| Configurable profiles            |           ✓           |          ✓          |   ✓    |
+| Context window management        |           ✓           |          ✓          |   ✓    |
+| Auto-compaction                  |           ✓           |          ✓          |   ✓    |
 
 ---
 
@@ -95,16 +95,19 @@ Built on the [OpenAI codex-rs](https://github.com/openai/codex) workspace (Apach
 git clone https://github.com/netbrah/claude-codex.git
 cd claude-codex/codex-rs
 cargo build --release
-# Binary: target/release/codex
+# Binary: target/release/codex (the packaged launcher exposes this as `xli`)
 ```
 
 ### Configure
 
-xli reads `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). Example configs are in [`examples/`](examples/):
+xli typically reads `~/.xli/config.toml` via the launcher bridge (or
+`$CODEX_HOME/config.toml` if you set it explicitly). Example configs are in
+[`examples/`](examples/):
 
 ```bash
 # Copy an example and edit
-cp examples/anthropic.toml ~/.codex/config.toml
+mkdir -p ~/.xli
+cp examples/anthropic.toml ~/.xli/config.toml
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
@@ -124,6 +127,7 @@ env_http_headers = { "x-api-key" = "ANTHROPIC_API_KEY" }
 [model_providers.anthropic.http_headers]
 "anthropic-version" = "2023-06-01"
 ```
+
 </details>
 
 <details>
@@ -139,6 +143,7 @@ base_url = "https://generativelanguage.googleapis.com/v1beta"
 wire_api = "gemini"
 env_http_headers = { "x-goog-api-key" = "GEMINI_API_KEY" }
 ```
+
 </details>
 
 <details>
@@ -165,9 +170,20 @@ model_provider = "anthropic"
 model = "gemini-2.5-pro"
 model_provider = "gemini"
 ```
+
 </details>
 
 See [`examples/README.md`](examples/README.md) for full configuration details including environment variables, profile switching, and auth notes.
+
+### Documentation
+
+For a full local documentation map, start with [`docs/README.md`](docs/README.md).
+Recommended first stops:
+
+- [`docs/getting-started.md`](docs/getting-started.md)
+- [`docs/authentication.md`](docs/authentication.md)
+- [`docs/config.md`](docs/config.md)
+- [`docs/sandbox.md`](docs/sandbox.md)
 
 ### Run
 
