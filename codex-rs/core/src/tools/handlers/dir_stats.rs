@@ -22,10 +22,10 @@ pub fn build_dir_stats(workspace_root: &Path, prune_threshold: usize) -> DirStat
         .git_ignore(true)
         .hidden(false)
         .filter_entry(|e| {
-            if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                if let Some(name) = e.file_name().to_str() {
-                    return !DENYLIST.contains(&name);
-                }
+            if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
+                && let Some(name) = e.file_name().to_str()
+            {
+                return !DENYLIST.contains(&name);
             }
             true
         })

@@ -1,0 +1,42 @@
+# Wire island allowlist — paths that MAY differ from upstream/main permanently.
+# Used by scripts/verify-xli-fork-surface.sh (S-WI-05).
+# One prefix per line; trailing / = directory prefix match.
+# Generated from B6 seam contract + code-graph module_overview validation (2026-06-25).
+
+# --- Workspace island crates (entire trees) ---
+codex-rs/model-provider-info/
+codex-rs/model-provider/
+codex-rs/provider-anthropic/
+codex-rs/provider-gemini/
+codex-rs/provider-copilot/
+codex-rs/provider-registry/
+
+# --- codex-api wire island (cross-wire SSE + server leg) ---
+codex-rs/codex-api/src/sse/messages.rs
+codex-rs/codex-api/src/sse/messages_wire_types.rs
+codex-rs/codex-api/src/sse/generate_content.rs
+codex-rs/codex-api/src/sse/generate_content_wire_types.rs
+codex-rs/codex-api/src/sse/usage.rs
+codex-rs/codex-api/src/messages_server/
+codex-rs/codex-api/src/wire/
+codex-rs/codex-api/src/endpoint/messages.rs
+codex-rs/codex-api/src/endpoint/generate_content.rs
+
+# --- Wire invariant goldens (RB-12a) ---
+codex-rs/codex-api/tests/fixtures/response_item_equiv/
+codex-rs/codex-api/tests/response_item_equiv.rs
+
+# --- Wire-extensions island + protocol bridge (S-WI-03) ---
+codex-rs/codex-wire-extensions/
+codex-rs/protocol/Cargo.toml
+codex-rs/protocol/src/error.rs
+codex-rs/protocol/src/error_tests.rs
+codex-rs/protocol/src/tool_name.rs
+
+# --- xli-only workspace members (fork-only; not upstream M, but listed for absorb script) ---
+codex-rs/copilot/
+codex-rs/copilot-host/
+codex-rs/vector-search/
+codex-rs/cloud-requirements/
+codex-rs/debug-client/
+codex-rs/prompt/

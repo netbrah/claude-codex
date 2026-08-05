@@ -1,0 +1,46 @@
+{
+  "_doc": "Pi-IR projection of redacted_thinking_block/messages_sse.json. Pi's content_block.type switch in claude-agent-sdk-pi/index.ts has NO arm for redacted_thinking — verified by ripgrep against refs/anthropic/claude-agent-sdk-recon-2026-06-23/upstream/claude-agent-sdk-pi/index.ts (zero matches). Anthropic emits redacted_thinking blocks when the model returns a thinking block that is safety-redacted; XLI MUST preserve it for byte-identical replay using the sentinel-prefixed encrypted_content ('\\u0000REDACTED\\u0000<data>') and raw_wire_block. Closes RI-010 (redacted_thinking BLOCKS_PROD HI-C1-008).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:text:1023",
+    "event.type:content_block_delta:1047",
+    "delta.type:text_delta:1048",
+    "event.type:content_block_stop:1095",
+    "block.type:text:1100",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_pi_state_machine_branches_MISSING": [
+    "content_block.type:redacted_thinking — pi has no arm; XLI extension via BlockState::RedactedThinking (sse/messages.rs:657-678)"
+  ],
+  "_asymmetry_xli_extension": "Reasoning with sentinel encrypted_content",
+  "_xli_target": "ResponseItem[Reasoning{encrypted_content='\\u0000REDACTED\\u0000opaque_encrypted_data_xyz', raw_wire_block}, Message{[OutputText('done')]}]",
+  "_uses_strict_order": "XLI emits [Reasoning, Message] in SSE order; the simple append (project(text) ++ Reasoning) would produce [Message, Reasoning]. Use _xli_full_sequence to lock the interleaved ordering.",
+  "_xli_full_sequence": [
+    {
+      "type": "reasoning",
+      "id": "",
+      "summary": [],
+      "encrypted_content": "\u0000REDACTED\u0000opaque_encrypted_data_xyz",
+      "raw_wire_block": {
+        "type": "redacted_thinking",
+        "data": "opaque_encrypted_data_xyz"
+      }
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        { "type": "output_text", "text": "done" }
+      ]
+    }
+  ],
+  "output_content": [
+    {
+      "type": "text",
+      "text": "done"
+    }
+  ]
+}

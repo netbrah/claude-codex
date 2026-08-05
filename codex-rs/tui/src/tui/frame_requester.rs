@@ -19,6 +19,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 
 use super::frame_rate_limiter::FrameRateLimiter;
+use super::frame_rate_limiter::effective_min_frame_interval;
 
 /// A requester for scheduling future frame draws on the TUI event loop.
 ///
@@ -37,8 +38,13 @@ impl FrameRequester {
     ///
     /// The provided `draw_tx` is used to notify the TUI event loop of scheduled draws.
     pub fn new(draw_tx: broadcast::Sender<()>) -> Self {
+        Self::with_min_interval(draw_tx, effective_min_frame_interval())
+    }
+
+    /// Create a new FrameRequester whose scheduler clamps draws to at most one per `min_interval`.
+    fn with_min_interval(draw_tx: broadcast::Sender<()>, min_interval: Duration) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
-        let scheduler = FrameScheduler::new(rx, draw_tx);
+        let scheduler = FrameScheduler::new(rx, draw_tx, min_interval);
         tokio::spawn(scheduler.run());
         Self {
             frame_schedule_tx: tx,
@@ -81,11 +87,15 @@ struct FrameScheduler {
 
 impl FrameScheduler {
     /// Create a new FrameScheduler with the provided receiver and draw notification sender.
-    fn new(receiver: mpsc::UnboundedReceiver<Instant>, draw_tx: broadcast::Sender<()>) -> Self {
+    fn new(
+        receiver: mpsc::UnboundedReceiver<Instant>,
+        draw_tx: broadcast::Sender<()>,
+        min_interval: Duration,
+    ) -> Self {
         Self {
             receiver,
             draw_tx,
-            rate_limiter: FrameRateLimiter::default(),
+            rate_limiter: FrameRateLimiter::new(min_interval),
         }
     }
 
@@ -136,7 +146,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_schedule_frame_immediate_triggers_once() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         requester.schedule_frame();
 
@@ -159,7 +169,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_schedule_frame_in_triggers_at_delay() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         requester.schedule_frame_in(Duration::from_millis(50));
 
@@ -185,7 +195,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_coalesces_multiple_requests_into_single_draw() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         // Schedule multiple immediate requests close together.
         requester.schedule_frame();
@@ -211,7 +221,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_coalesces_mixed_immediate_and_delayed_requests() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         // Schedule a delayed draw and then an immediate one; should coalesce and fire at the earliest (immediate).
         requester.schedule_frame_in(Duration::from_millis(100));
@@ -234,7 +244,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_limits_draw_notifications_to_120fps() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         requester.schedule_frame();
         time::advance(Duration::from_millis(1)).await;
@@ -265,7 +275,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_rate_limit_clamps_early_delayed_requests() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         requester.schedule_frame();
         time::advance(Duration::from_millis(1)).await;
@@ -297,7 +307,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_rate_limit_does_not_delay_future_draws() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         requester.schedule_frame();
         time::advance(Duration::from_millis(1)).await;
@@ -326,7 +336,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn test_multiple_delayed_requests_coalesce_to_earliest() {
         let (draw_tx, mut draw_rx) = broadcast::channel(16);
-        let requester = FrameRequester::new(draw_tx);
+        let requester = FrameRequester::with_min_interval(draw_tx, MIN_FRAME_INTERVAL);
 
         // Schedule multiple delayed draws; they should coalesce to the earliest (10ms).
         requester.schedule_frame_in(Duration::from_millis(100));

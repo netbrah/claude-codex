@@ -1,0 +1,33 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "codex-provider-copilot"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "codex_provider_copilot"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+codex-api = { workspace = true }
+codex-copilot-adapter = { workspace = true }
+codex-login = { workspace = true }
+codex-model-provider = { workspace = true }
+codex-models-manager = { workspace = true }
+codex-model-provider-info = { workspace = true }
+codex-prompt = { workspace = true }
+codex-protocol = { workspace = true }
+codex-provider-anthropic = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

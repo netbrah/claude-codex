@@ -1,0 +1,24 @@
+{
+  "_doc": "RI-015 fixture. Anthropic /v1/messages supports top_k as a sampling parameter. XLI's AnthropicInboundRequest declares temperature + top_p but NOT top_k — serde silently drops it. The downstream /responses sampling envelope expects top_k where the model supports it (Claude, some Vertex variants). This fixture parses a request carrying top_k=40 and asserts the parsed AnthropicInboundRequest does NOT carry the field (current contract), documenting the gap.",
+  "_known_gap": {
+    "ri": "RI-015",
+    "severity": "BLOCKS_PROD",
+    "description": "top_k sampling parameter is silently dropped on the inbound leg. AnthropicInboundRequest needs a `top_k: Option<u32>` field + plumbing to the /responses sampling envelope.",
+    "fix_location": "spokes/xli/codex-rs/codex-api/src/messages_server/inbound.rs::AnthropicInboundRequest"
+  },
+  "request": {
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 4096,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 40,
+    "messages": [
+      {
+        "role": "user",
+        "content": "ping"
+      }
+    ]
+  },
+  "_expected_parsed_top_p": 0.9,
+  "_expected_parsed_temperature": 0.7
+}

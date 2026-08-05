@@ -1,7 +1,13 @@
-# Build XLI binaries for macOS arm64 + Linux x86_64 + Linux EL9
+# Build XLI binaries for Linux x86_64 + Linux EL9
+#
+# Mac arm64 is intentionally NOT built by CI: macos-15-xlarge runners
+# are billed at a 10× multiplier on private repos and a single run
+# consumes ~5-8× the Linux budget. Operators build mac arm64 locally
+# via `deploy/build.sh mac` (happy path — every push comes from a mac
+# anyway and the build is ~20 min on M-series).
 #
 # Flow:
-#   push to dev → build mac + linux (glibc 2.39) + linux-el9 (glibc 2.34)
+#   push to dev → build linux-amd64 (glibc 2.39) + linux-el9 (glibc 2.34)
 #   manual dispatch → same
 #   tag xli-v* → same
 #
@@ -10,6 +16,9 @@
 #
 # After CI completes, pull artifacts locally and ship:
 #   gh run download <run-id> -D artifacts/
+#   cp target/release/xli deploy/npm/vendor/aarch64-apple-darwin/xli/xli  # from local deploy/build.sh mac
+#   cp artifacts/xli-linux-amd64/xli deploy/npm/vendor/x86_64-unknown-linux-gnu/xli
+#   cp artifacts/xli-linux-el9/xli   deploy/npm/vendor/x86_64-unknown-linux-gnu-el9/xli
 #   deploy/upload.sh ship
 
 name: xli-build
@@ -34,18 +43,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Test-bin compile gate (R9) ─────────────────────────────────────
+  # A test target that fails to COMPILE is invisible to `cargo test --lib`
+  # and to nextest filters: --lib stays green while a guarded contract
+  # silently rots. Upstream merges are exactly when an integration test bin
+  # breaks (a moved/deleted symbol it imported), so this blind spot aligns
+  # with peak risk. Gate the binary build on every test target at least
+  # compiling. Mirrors `just test-compile`.
+  test-compile:
+    name: Test-bin compile gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: codex-rs
+    env:
+      RUST_MIN_STACK: "8388608" # 8 MiB
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            codex-rs/target
+          key: xli-test-compile-${{ hashFiles('codex-rs/Cargo.lock') }}
+          restore-keys: xli-test-compile-
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            pkg-config libcap-dev
+      - name: Compile all test targets (no run)
+        run: cargo test --workspace --all-targets --no-run
+
   build:
     name: Build - ${{ matrix.platform }}
+    needs: test-compile
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15-xlarge
-            target: aarch64-apple-darwin
-            platform: darwin-arm64
-            artifact_name: xli-darwin-arm64
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             platform: linux-amd64
@@ -107,6 +150,7 @@ jobs:
   # against glibc 2.34 instead of 2.39. Required for RHEL 9 / EL9 hosts.
   build-el9:
     name: Build - linux-el9
+    needs: test-compile
     runs-on: ubuntu-24.04
     container: almalinux:9
     timeout-minutes: 45
@@ -174,9 +218,11 @@ jobs:
         run: |
           echo "## XLI Build Results" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "_Mac arm64 is built locally via \`deploy/build.sh mac\` — not by CI (10× Actions-minute multiplier)._" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Platform | Size | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|----------|------|--------|" >> "$GITHUB_STEP_SUMMARY"
-          for name in xli-darwin-arm64 xli-linux-amd64 xli-linux-el9; do
+          for name in xli-linux-amd64 xli-linux-el9; do
             if [[ -f "artifacts/$name/xli" ]]; then
               size=$(du -h "artifacts/$name/xli" | cut -f1)
               echo "| $name | $size | :white_check_mark: |" >> "$GITHUB_STEP_SUMMARY"
@@ -190,8 +236,10 @@ jobs:
           echo "# Download from this run:" >> "$GITHUB_STEP_SUMMARY"
           echo "gh run download ${{ github.run_id }} -D /tmp/xli-artifacts" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "# Build the mac arm64 half locally (not produced by CI):" >> "$GITHUB_STEP_SUMMARY"
+          echo "deploy/build.sh mac" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "# Stage and ship:" >> "$GITHUB_STEP_SUMMARY"
-          echo "cp /tmp/xli-artifacts/xli-darwin-arm64/xli deploy/npm/vendor/aarch64-apple-darwin/xli/xli" >> "$GITHUB_STEP_SUMMARY"
           echo "cp /tmp/xli-artifacts/xli-linux-amd64/xli deploy/npm/vendor/x86_64-unknown-linux-gnu/xli" >> "$GITHUB_STEP_SUMMARY"
           echo "cp /tmp/xli-artifacts/xli-linux-el9/xli deploy/npm/vendor/x86_64-unknown-linux-gnu-el9/xli" >> "$GITHUB_STEP_SUMMARY"
           echo "deploy/upload.sh ship" >> "$GITHUB_STEP_SUMMARY"

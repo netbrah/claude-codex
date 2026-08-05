@@ -1,0 +1,42 @@
+[package]
+name = "codex-copilot-adapter"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+
+[lib]
+name = "codex_copilot_adapter"
+path = "src/lib.rs"
+
+[dependencies]
+# Pinned to netbrah/codex-agent main (commit 26ff8f1d...) — see docs/integration
+# in https://github.com/netbrah/copilot-codex for the adapter design.
+# The 66-test Copilot baseline stays authoritative upstream; this crate is the
+# adapter only. Invariants 1, 4, 5 are preserved by reference, not by copy.
+codex-copilot = { git = "https://github.com/netbrah/codex-agent.git", rev = "26ff8f1d4967360960d0886aee8462bc56b558ff" }
+
+# In-tree sibling crates.
+codex-api = { path = "../codex-api" }
+codex-protocol = { path = "../protocol" }
+codex-model-provider-info = { path = "../model-provider-info" }
+codex-tools = { path = "../tools" }
+
+http = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls", "stream", "json"] }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+async-stream = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+smallvec = { version = "1", features = ["serde"] }
+uuid = { workspace = true, features = ["v4"] }
+httpdate = "1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+wiremock = "0.6"

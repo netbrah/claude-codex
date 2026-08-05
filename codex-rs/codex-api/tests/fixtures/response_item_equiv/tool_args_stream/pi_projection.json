@@ -1,0 +1,24 @@
+{
+  "_doc": "Pi-IR projection of tool_args_stream/messages_sse.json — pi consumes the same SSE and emits a single toolCall block. The two input_json_delta fragments ('{\"command\\\"' + ': \"ls\"}') are accumulated by pi into a parsed Record and surface as the arguments field on the toolCall block. Closes RI-016 (final FunctionCall.arguments IR), RI-DEFER-003 (ToolCallInputDelta wire-level events — locked separately by response_item_equiv.rs), and the well-formed half of RI-017 (truncation detection uses partialJson; here the stream is complete).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:tool_use:1031",
+    "event.type:content_block_delta:1047",
+    "delta.type:input_json_delta:1072",
+    "event.type:content_block_stop:1095",
+    "block.type:toolCall:1114",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_xli_target": "ResponseItem[FunctionCall]",
+  "output_content": [
+    {
+      "type": "toolCall",
+      "id": "equiv_call_1",
+      "name": "shell",
+      "arguments": { "command": "ls" }
+    }
+  ]
+}

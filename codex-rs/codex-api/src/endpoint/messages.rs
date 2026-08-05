@@ -1,6 +1,6 @@
 //! HTTP endpoint client for Anthropic `/messages`.
 
-use crate::auth::AuthProvider;
+use crate::auth::SharedAuthProvider;
 use crate::common::ResponseStream;
 use crate::endpoint::session::EndpointSession;
 use crate::error::ApiError;
@@ -42,6 +42,12 @@ pub struct MessagesApiRequest {
     pub tool_choice: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<serde_json::Value>,
+    /// Anthropic `output_config` -- controls reasoning effort.
+    /// Set to `{"effort": "low"|"medium"|"high"|"max"}` based on
+    /// `model_reasoning_effort`. Both Anthropic-direct and Copilot CAPI
+    /// paths populate this; Copilot may override via its own mapping.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -54,12 +60,12 @@ pub struct MessagesApiRequest {
     pub metadata: Option<MessagesApiMetadata>,
 }
 
-pub struct MessagesClient<T: HttpTransport, A: AuthProvider> {
-    session: EndpointSession<T, A>,
+pub struct MessagesClient<T: HttpTransport> {
+    session: EndpointSession<T>,
 }
 
-impl<T: HttpTransport, A: AuthProvider> MessagesClient<T, A> {
-    pub fn new(transport: T, provider: Provider, auth: A) -> Self {
+impl<T: HttpTransport> MessagesClient<T> {
+    pub fn new(transport: T, provider: Provider, auth: SharedAuthProvider) -> Self {
         Self {
             session: EndpointSession::new(transport, provider, auth),
         }
@@ -100,9 +106,30 @@ impl<T: HttpTransport, A: AuthProvider> MessagesClient<T, A> {
             HeaderValue::from_static("2023-06-01"),
         );
 
-        // Build anthropic-beta header dynamically based on features used in
-        // this request.  Only sent when at least one beta feature is active.
+        // Build anthropic-beta header by merging any betas already set in
+        // extra_headers (e.g. extended-cache-ttl-2025-04-11 from the provider
+        // layer) with the betas we always need here. We extract the existing
+        // value first and split it so we can de-duplicate, then re-insert a
+        // single merged comma-separated value. Using insert() without extract
+        // would silently drop the provider-injected betas.
+        let existing_betas: Vec<String> = headers
+            .remove(http::HeaderName::from_static("anthropic-beta"))
+            .and_then(|v| v.to_str().ok().map(|s| s.to_owned()))
+            .into_iter()
+            .flat_map(|s| s.split(',').map(str::trim).map(str::to_owned).collect::<Vec<_>>())
+            .collect();
+
         let mut beta_features: Vec<&str> = Vec::new();
+
+        // Always opt into prompt caching on the /messages wire so the upstream
+        // Anthropic SSE emits cache_read_input_tokens / cache_creation_input_tokens
+        // and honors `cache_control: ephemeral` breakpoints on system blocks,
+        // tool definitions, and message content blocks. Prompt caching is GA on
+        // the direct Anthropic API (the beta header is a no-op there) but the
+        // header is still required by some proxy paths (CAPI, older LiteLLM
+        // builds) to surface cache hit/miss telemetry. Sending it unconditionally
+        // is safe — Anthropic ignores unknown/legacy beta tokens.
+        beta_features.push("prompt-caching-2024-07-31");
 
         if request.thinking.is_some() {
             beta_features.push("interleaved-thinking-2025-05-14");
@@ -112,14 +139,23 @@ impl<T: HttpTransport, A: AuthProvider> MessagesClient<T, A> {
         //     beta_features.push("effort-2025-11-24");
         // }
 
-        if !beta_features.is_empty() {
-            headers.insert(
-                http::HeaderName::from_static("anthropic-beta"),
-                beta_features
-                    .join(",")
-                    .parse()
-                    .expect("valid header value"),
-            );
+        // Merge provider-injected betas (e.g. extended-cache-ttl-2025-04-11)
+        // without duplicating entries already in beta_features.
+        let merged: Vec<String> = beta_features
+            .iter()
+            .map(|s| s.to_string())
+            .chain(
+                existing_betas
+                    .into_iter()
+                    .filter(|b| !beta_features.contains(&b.as_str())),
+            )
+            .collect();
+
+        if !merged.is_empty() {
+            let beta_value = merged.join(",").parse().map_err(|e| {
+                ApiError::Stream(format!("failed to build anthropic-beta header: {e}"))
+            })?;
+            headers.insert(http::HeaderName::from_static("anthropic-beta"), beta_value);
         }
 
         let stream_response = self

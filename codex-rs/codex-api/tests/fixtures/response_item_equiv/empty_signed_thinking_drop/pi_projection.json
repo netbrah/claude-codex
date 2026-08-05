@@ -1,0 +1,41 @@
+{
+  "_doc": "Pi-IR projection of empty_signed_thinking_drop/messages_sse.json. ASYMMETRIC harness divergence where XLI SUBSETS pi: pi at index.ts:1107 emits a thinking block with the (possibly empty) content + thinkingSignature on output.content[]. XLI deliberately DROPS the block because Anthropic's signature verifier rejects replay of a signature computed over content the proxy never returned (S-OPUS47-EMPTY-THINKING, sse/messages.rs:614-620). Closes RI-019 (BLOCKS_PROD — Empty signed thinking drop). The pi_state_machine still exercises the thinking branches; the divergence is at the stop emission policy. The XLI emission is a strict subset, so the fixture uses _xli_full_sequence rather than assert_pi_projection_equivalent (which would expect XLI to emit the Reasoning).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:thinking:1027",
+    "event.type:content_block_delta:1047",
+    "delta.type:signature_delta:1085",
+    "event.type:content_block_stop:1095",
+    "block.type:thinking:1107",
+    "content_block.type:text:1023",
+    "delta.type:text_delta:1048",
+    "block.type:text:1100",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_asymmetry_xli_subset": "S-OPUS47-EMPTY-THINKING drop — XLI drops what pi would emit",
+  "_xli_target": "ResponseItem[Message{[OutputText('answer')]}] — thinking block DROPPED",
+  "_uses_strict_order": "XLI subsets pi (drops the empty-signed thinking); use _xli_full_sequence to assert the post-drop sequence.",
+  "_xli_full_sequence": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        { "type": "output_text", "text": "answer" }
+      ]
+    }
+  ],
+  "output_content": [
+    {
+      "type": "thinking",
+      "thinking": "",
+      "thinkingSignature": "SIG_OPUS47_ADAPTIVE_REAL="
+    },
+    {
+      "type": "text",
+      "text": "answer"
+    }
+  ]
+}

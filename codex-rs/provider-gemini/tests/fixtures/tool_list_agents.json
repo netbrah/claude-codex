@@ -1,0 +1,10 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "path_prefix": {
+      "description": "Optional task-path prefix (not ending with trailing slash). Accepts the same relative or absolute task-path syntax.",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agent_type": {
+      "description": "Default agent.",
+      "type": "string"
+    },
+    "fork_turns": {
+      "description": "Optional number of turns to fork. Default is `all` (full-history fork), except when `agent_type`, `model`, or `reasoning_effort` is also set — in that case the default becomes `none` so the child can adopt the requested role/model. Use `none`, `all`, or a positive integer string such as `3` to fork only the most recent turns. A full-history fork (`all`) cannot be combined with `agent_type`/`model`/`reasoning_effort` overrides.",
+      "type": "string"
+    },
+    "message": {
+      "description": "Initial plain-text task for the new agent.",
+      "type": "string"
+    },
+    "model": {
+      "description": "Optional model override for the new agent. Leave unset to inherit the same model as the parent, which is the preferred default. Only set this when the user explicitly asks for a different model or the task clearly requires one.",
+      "type": "string"
+    },
+    "reasoning_effort": {
+      "description": "Optional reasoning effort override for the new agent. Replaces the inherited reasoning effort.",
+      "type": "string"
+    },
+    "service_tier": {
+      "description": "Optional service tier override for the new agent. Leave unset unless the user explicitly asks for one.",
+      "type": "string"
+    },
+    "task_name": {
+      "description": "Task name for the new agent. Use lowercase letters, digits, and underscores.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_name",
+    "message"
+  ],
+  "type": "object"
+}

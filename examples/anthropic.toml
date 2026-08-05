@@ -1,0 +1,69 @@
+# ===================================================================
+# xli — Anthropic (api.anthropic.com) example configuration
+# ===================================================================
+#
+# Copy to ~/.xli/config.toml (or $XLI_HOME/config.toml).
+#
+# Prerequisite:
+#   export ANTHROPIC_API_KEY="your-api-key-here"
+#
+# Launch:
+#   xli                    # uses the top-level defaults below
+#   xli -p opus            # named profile
+#   xli -p sonnet
+#   xli -p haiku
+#   xli -m claude-sonnet-4-6   # ad-hoc model override
+#
+# ===================================================================
+
+# ── Defaults for a bare `xli` invocation ───────────────────────────
+model = "claude-opus-4-7"
+model_provider = "anthropic"
+model_reasoning_effort = "medium"      # none | minimal | low | medium | high | xhigh
+model_reasoning_summary = "detailed"   # auto | concise | detailed | none
+web_search = "disabled"                # disabled | cached | live
+
+# ── Provider ───────────────────────────────────────────────────────
+[model_providers.anthropic]
+name = "Anthropic"
+base_url = "https://api.anthropic.com/v1"
+wire_api = "messages"
+requires_openai_auth = false
+
+# Anthropic authenticates with the `x-api-key` header, NOT
+# `Authorization: Bearer`. `env_http_headers` maps a header name to the
+# environment variable holding its value, so this reads
+# $ANTHROPIC_API_KEY at request time and sends it as `x-api-key`.
+env_http_headers = { "x-api-key" = "ANTHROPIC_API_KEY" }
+
+# Do NOT also set `env_key = "ANTHROPIC_API_KEY"` here. `env_key` sends
+# the value as `Authorization: Bearer <key>`, which api.anthropic.com
+# rejects with 401. See README.md → "Why env_http_headers".
+
+# ── Profiles (`xli -p <name>`) ─────────────────────────────────────
+
+[profiles.opus]
+model = "claude-opus-4-7"
+model_provider = "anthropic"
+model_reasoning_effort = "high"
+
+[profiles.sonnet]
+model = "claude-sonnet-4-6"
+model_provider = "anthropic"
+model_reasoning_effort = "medium"
+
+[profiles.haiku]
+model = "claude-haiku-4-5-20251001"
+model_provider = "anthropic"
+model_reasoning_effort = "low"
+
+# ── Telemetry ──────────────────────────────────────────────────────
+# Release builds default `metrics_exporter` to "statsig", which posts
+# usage metrics to a third-party endpoint. Opt out explicitly.
+[otel]
+metrics_exporter = "none"   # none | statsig | otlp-http
+log_user_prompt = false
+
+# ── TUI ────────────────────────────────────────────────────────────
+[tui]
+theme = "nord"

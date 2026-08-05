@@ -51,6 +51,7 @@ fn thread_spawn_depth_increments_and_enforces_limit() {
         agent_path: None,
         agent_nickname: None,
         agent_role: None,
+        parent_spawn_call_id: None,
     });
     let child_depth = next_thread_spawn_depth(&session_source);
     assert_eq!(child_depth, 2);

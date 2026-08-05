@@ -7,12 +7,11 @@ fn masker_in(dir: &Path, threshold: usize) -> ToolOutputMasker {
     ToolOutputMasker::new(dir.to_path_buf(), threshold, HashSet::new())
 }
 
-fn masker_in_with_exemptions(
-    dir: &Path,
-    threshold: usize,
-    exempt: &[&str],
-) -> ToolOutputMasker {
-    let exempt_set: HashSet<String> = exempt.iter().map(|s| s.to_string()).collect();
+fn masker_in_with_exemptions(dir: &Path, threshold: usize, exempt: &[&str]) -> ToolOutputMasker {
+    let exempt_set: HashSet<String> = exempt
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
     ToolOutputMasker::new(dir.to_path_buf(), threshold, exempt_set)
 }
 
@@ -95,8 +94,7 @@ fn long_output_is_masked_with_head_and_tail() {
 #[test]
 fn exempt_tool_is_never_masked() {
     let tmp = tempfile::tempdir().unwrap();
-    let masker =
-        masker_in_with_exemptions(tmp.path(), 10, &["ask_user_question", "memory"]);
+    let masker = masker_in_with_exemptions(tmp.path(), 10, &["ask_user_question", "memory"]);
 
     let huge_output = "x".repeat(100_000);
 

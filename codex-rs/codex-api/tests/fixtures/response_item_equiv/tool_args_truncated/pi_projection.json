@@ -1,0 +1,34 @@
+{
+  "_doc": "Pi-IR projection of tool_args_truncated/messages_sse.json. THE WIRE IS TRUNCATED MID-JSON. The two harnesses diverge on recovery policy: (a) pi accumulates partialJson AND parses live via parsePartialJson(), recovering a best-effort args Record like {\"command\":\"ls\"} and emitting a toolCall block; pi's stop_reason on output.stopReason is whatever the wire carried (here 'tool_use'). (b) XLI keeps the raw partial_json bytes verbatim on the FunctionCall.arguments string AND detects the JSON-parse failure to OVERRIDE the Completed envelope's stop_reason from 'tool_use' to 'max_tokens' (S-004 retry signal). The IR-level divergence is documented as ASYMMETRIC; the cross-wire fence here uses _xli_full_sequence to lock XLI's verbatim-bytes shape, and the test fn additionally asserts the stop_reason override. Closes RI-017 (BLOCKS_PROD — Truncated tool args).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:tool_use:1031",
+    "event.type:content_block_delta:1047",
+    "delta.type:input_json_delta:1072",
+    "event.type:content_block_stop:1095",
+    "block.type:toolCall:1114",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_asymmetry_recovery_policy": "pi recovers via parsePartialJson; XLI keeps raw bytes + stop_reason='max_tokens' override (S-004)",
+  "_xli_target": "ResponseItem[FunctionCall{arguments='{\"command\": \"ls' raw bytes}]; Completed.stop_reason='max_tokens'",
+  "_uses_strict_order": "XLI keeps invalid JSON in arguments verbatim; normalize_for_equiv leaves invalid JSON as String (no semantic parse); the would-be pi projection cannot be expressed via project(output_content) since pi's recovered shape ({command:'ls'}) is different from XLI's raw partial bytes.",
+  "_xli_full_sequence": [
+    {
+      "type": "function_call",
+      "call_id": "trunc_call_1",
+      "name": "shell",
+      "arguments": "{\"command\": \"ls"
+    }
+  ],
+  "output_content": [
+    {
+      "type": "toolCall",
+      "id": "trunc_call_1",
+      "name": "shell",
+      "arguments": { "command": "ls" }
+    }
+  ]
+}

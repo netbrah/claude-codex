@@ -1,0 +1,39 @@
+{
+  "model": "claude-sonnet-4.6",
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "tu_img",
+          "name": "screenshot",
+          "input": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "tu_img",
+          "content": [
+            {
+              "type": "text",
+              "text": "screenshot"
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "url": "https://example.com/a.png"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

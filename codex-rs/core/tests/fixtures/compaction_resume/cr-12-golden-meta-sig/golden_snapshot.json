@@ -1,0 +1,56 @@
+{
+  "historyMeta": [
+    {
+      "provider": "gemini",
+      "compressed": true
+    },
+    {
+      "provider": "gemini",
+      "compressed": true
+    },
+    {
+      "provider": "gemini",
+      "compressed": true
+    }
+  ],
+  "requestContents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "read the file"
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "id": "tool_read_001",
+            "name": "read_file",
+            "args": {
+              "path": "/tmp/example.txt"
+            }
+          },
+          "thoughtSignature": "skip_thought_signature_validator"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "tool_read_001",
+            "name": "read_file",
+            "response": {
+              "output": "{\"ok\": true}"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "syntheticSignature": "skip_thought_signature_validator"
+}

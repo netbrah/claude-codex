@@ -7,9 +7,11 @@
 //! to disk so it can be recovered if needed.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use sha2::Sha256;
 
 /// Default character-count threshold above which an output is eligible for
 /// masking (~12.5K tokens at 4 chars/token).
@@ -50,11 +52,7 @@ impl ToolOutputMasker {
     /// Create a new masker.
     ///
     /// `mask_dir` will be created on first write if it doesn't already exist.
-    pub fn new(
-        mask_dir: PathBuf,
-        threshold_chars: usize,
-        exempt_tools: HashSet<String>,
-    ) -> Self {
+    pub fn new(mask_dir: PathBuf, threshold_chars: usize, exempt_tools: HashSet<String>) -> Self {
         Self {
             mask_dir,
             threshold_chars,
@@ -74,12 +72,9 @@ impl ToolOutputMasker {
             .join(".xli")
             .join("masked_outputs");
 
-        let exempt_tools: HashSet<String> = [
-            "ask_user_question".to_string(),
-            "memory".to_string(),
-        ]
-        .into_iter()
-        .collect();
+        let exempt_tools: HashSet<String> = ["ask_user_question".to_string(), "memory".to_string()]
+            .into_iter()
+            .collect();
 
         Self::new(mask_dir, DEFAULT_THRESHOLD_CHARS, exempt_tools)
     }
@@ -92,11 +87,7 @@ impl ToolOutputMasker {
     ///
     /// Returns [`MaskResult::Masked`] otherwise.  As a side-effect the full
     /// output is written to `<mask_dir>/<sha256_hex>`.
-    pub fn maybe_mask(
-        &self,
-        tool_name: &str,
-        output: &str,
-    ) -> std::io::Result<MaskResult> {
+    pub fn maybe_mask(&self, tool_name: &str, output: &str) -> std::io::Result<MaskResult> {
         // Exempt tools are never masked.
         if self.exempt_tools.contains(tool_name) {
             return Ok(MaskResult::Unmasked(output.to_string()));

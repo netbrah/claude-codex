@@ -1,0 +1,22 @@
+[
+  {
+    "type": "function_call",
+    "call_id": "tu_img",
+    "name": "screenshot",
+    "arguments": "{}"
+  },
+  {
+    "type": "function_call_output",
+    "call_id": "tu_img",
+    "output": [
+      {
+        "type": "input_text",
+        "text": "screenshot"
+      },
+      {
+        "type": "input_image",
+        "image_url": "https://example.com/a.png"
+      }
+    ]
+  }
+]

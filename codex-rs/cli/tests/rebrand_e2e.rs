@@ -37,10 +37,7 @@ fn xli_binary() -> PathBuf {
 #[test]
 fn binary_is_named_xli() {
     let binary = xli_binary();
-    let file_name = binary
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let file_name = binary.file_name().and_then(|n| n.to_str()).unwrap_or("");
     assert!(
         file_name.starts_with("xli"),
         "binary should be named 'xli', got: {file_name}"
@@ -200,11 +197,8 @@ fn dot_xli_project_config_is_loaded() {
     // Create .xli/ project config dir (new name)
     let dot_xli = project_path.join(".xli");
     std::fs::create_dir_all(&dot_xli).expect("create .xli dir");
-    std::fs::write(
-        dot_xli.join("config.toml"),
-        "# project-level config\n",
-    )
-    .expect("write project config");
+    std::fs::write(dot_xli.join("config.toml"), "# project-level config\n")
+        .expect("write project config");
 
     // The binary should succeed with the .xli project config
     let output = Command::new(xli_binary())

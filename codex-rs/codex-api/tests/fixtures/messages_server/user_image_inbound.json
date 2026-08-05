@@ -1,0 +1,41 @@
+{
+  "_doc": "RI-003 fixture. Anthropic user message with both text and image blocks (URL form). XLI's translate_user_message must produce a single user Message{[InputText, InputImage]} with image_url as the source URL. Base64 form would render as 'data:<media_type>;base64,<data>' instead.",
+  "request": {
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is in this image?"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "url": "https://example.com/cat.png"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_messages_input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "What is in this image?"
+        },
+        {
+          "type": "input_image",
+          "image_url": "https://example.com/cat.png"
+        }
+      ]
+    }
+  ]
+}

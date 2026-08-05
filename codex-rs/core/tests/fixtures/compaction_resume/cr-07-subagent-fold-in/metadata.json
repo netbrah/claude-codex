@@ -1,0 +1,10 @@
+{
+  "fixture_id": "CR-07",
+  "hi_rows": ["HI-C6-003", "HI-C6-005", "HI-C6-001", "HI-C2-004"],
+  "hce05_seed": null,
+  "bundle_schema": "conversation-record-v1",
+  "requires_hce02": true,
+  "spokes": ["apex", "xli"],
+  "phase": 2,
+  "hce05_seed_mode": "topology-only"
+}

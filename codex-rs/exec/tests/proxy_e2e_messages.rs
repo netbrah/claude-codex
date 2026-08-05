@@ -61,13 +61,52 @@ struct JsonlEvent {
     data: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Default)]
+struct TurnUsage {
+    input_tokens: i64,
+    cached_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+    output_tokens: i64,
+    reasoning_output_tokens: i64,
+}
+
+impl TurnUsage {
+    fn non_cached_input(&self) -> i64 {
+        (self.input_tokens - self.cached_input_tokens.max(0)).max(0)
+    }
+}
+
+fn parse_turn_usage(usage: &serde_json::Value) -> TurnUsage {
+    TurnUsage {
+        input_tokens: usage
+            .get("input_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+        cached_input_tokens: usage
+            .get("cached_input_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+        cache_creation_input_tokens: usage
+            .get("cache_creation_input_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+        output_tokens: usage
+            .get("output_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+        reasoning_output_tokens: usage
+            .get("reasoning_output_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+    }
+}
+
 #[derive(Debug)]
 struct ProxyRunResult {
     events: Vec<JsonlEvent>,
     response: String,
     exit_code: i32,
-    input_tokens: i64,
-    output_tokens: i64,
+    turn_usage: TurnUsage,
     #[allow(dead_code)]
     raw_stderr: String,
 }
@@ -131,6 +170,13 @@ trust_level = "trusted"
     let output = Command::new(&binary)
         .arg("exec")
         .arg("--json")
+        // Tests run in an isolated tempdir; allow writes there so
+        // multi-tool prompts (e.g. `claude_multi_tool_chain`) can
+        // actually create + read back fixture files. Sandbox is
+        // scoped to the per-test tempdir (workspace-write = cwd
+        // writable, network blocked).
+        .arg("--sandbox")
+        .arg("workspace-write")
         .arg("--skip-git-repo-check")
         .arg(&config.prompt)
         .env("CODEX_HOME", codex_home.to_str().unwrap())
@@ -144,10 +190,13 @@ trust_level = "trusted"
     let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let exit_code = output.status.code().unwrap_or(-1);
 
+    parse_proxy_stdout(&raw_stdout, exit_code, raw_stderr)
+}
+
+fn parse_proxy_stdout(raw_stdout: &str, exit_code: i32, raw_stderr: String) -> ProxyRunResult {
     let mut events = Vec::new();
     let mut response = String::new();
-    let mut input_tokens: i64 = 0;
-    let mut output_tokens: i64 = 0;
+    let mut turn_usage = TurnUsage::default();
 
     for line in raw_stdout.lines() {
         let line = line.trim();
@@ -169,14 +218,7 @@ trust_level = "trusted"
             }
             if event.kind == "turn.completed" {
                 if let Some(usage) = event.data.get("usage") {
-                    input_tokens = usage
-                        .get("input_tokens")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    output_tokens = usage
-                        .get("output_tokens")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
+                    turn_usage = parse_turn_usage(usage);
                 }
             }
             events.push(event);
@@ -187,10 +229,94 @@ trust_level = "trusted"
         events,
         response,
         exit_code,
-        input_tokens,
-        output_tokens,
+        turn_usage,
         raw_stderr,
     }
+}
+
+/// Shared tempdir + config for a two-turn resume session (prompt caching probe).
+struct ProxySession {
+    tmp_dir: tempfile::TempDir,
+    codex_home: PathBuf,
+    api_key: String,
+}
+
+impl ProxySession {
+    fn new(config: &RunConfig) -> Self {
+        let tmp_dir = tempfile::TempDir::new().expect("create temp dir");
+        let codex_home = tmp_dir.path().join(".xli");
+        std::fs::create_dir_all(&codex_home).expect("create codex home");
+
+        let api_key = std::env::var("CODEX_LLM_PROXY_KEY").expect("CODEX_LLM_PROXY_KEY");
+
+        let config_content = format!(
+            r#"model = "{model}"
+model_provider = "anthropic-proxy"
+approval_policy = "never"
+model_reasoning_effort = "{effort}"
+
+[model_providers.anthropic-proxy]
+name = "Anthropic via LiteLLM"
+base_url = "{base_url}"
+env_key = "ANTHROPIC_API_KEY"
+wire_api = "messages"
+
+[projects."{workdir}"]
+trust_level = "trusted"
+"#,
+            model = config.model,
+            effort = config.reasoning_effort,
+            base_url = proxy_base_url(),
+            workdir = tmp_dir.path().display(),
+        );
+        std::fs::write(codex_home.join("config.toml"), config_content).expect("write config");
+
+        for (name, content) in &config.fixture_files {
+            let path = tmp_dir.path().join(name);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            std::fs::write(&path, content).expect("write fixture");
+        }
+
+        Self {
+            tmp_dir,
+            codex_home,
+            api_key,
+        }
+    }
+
+    fn run_prompt(&self, prompt: &str, resume_last: bool) -> ProxyRunResult {
+        let binary = codex_binary_path();
+        let mut cmd = Command::new(&binary);
+        cmd.arg("exec")
+            .arg("--json")
+            .arg("--sandbox")
+            .arg("workspace-write")
+            .arg("--skip-git-repo-check");
+        if resume_last {
+            cmd.arg("resume").arg("--last");
+        }
+        cmd.arg(prompt)
+            .env("CODEX_HOME", self.codex_home.to_str().unwrap())
+            .env("ANTHROPIC_API_KEY", &self.api_key)
+            .env("CODEX_SANDBOX_NETWORK_DISABLED", "")
+            .current_dir(self.tmp_dir.path());
+
+        let output = cmd.output().expect("spawn codex");
+        let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let exit_code = output.status.code().unwrap_or(-1);
+        parse_proxy_stdout(&raw_stdout, exit_code, raw_stderr)
+    }
+}
+
+/// ~2k-token static prefix so turn-2 resume can hit Anthropic prompt cache.
+fn cache_probe_prefix() -> String {
+    const PARA: &str = "Cross-wire usage equivalence requires cache-inclusive input_tokens \
+        with cached_input_tokens as a subset. This paragraph repeats to exceed the minimum \
+        cache block size for Claude prompt caching on the live proxy. ";
+    PARA.repeat(120)
 }
 
 fn codex_binary_path() -> PathBuf {
@@ -229,8 +355,8 @@ fn claude_basic_prompt_via_messages_api() {
         "response should contain '4', got: {}",
         result.response
     );
-    assert!(result.input_tokens > 0, "should report input tokens");
-    assert!(result.output_tokens > 0, "should report output tokens");
+    assert!(result.turn_usage.input_tokens > 0, "should report input tokens");
+    assert!(result.turn_usage.output_tokens > 0, "should report output tokens");
 }
 
 #[test]
@@ -475,6 +601,79 @@ trust_level = "trusted"
             || !stdout.is_empty(),
         "should get a response\nstdout: {stdout}"
     );
+}
+
+// ─── Prompt-cache / usage invariant (live proxy) ───
+
+#[test]
+fn claude_cached_turn_reports_cache_inclusive_usage() {
+    if skip_unless_proxy_e2e() {
+        return;
+    }
+
+    let prefix = cache_probe_prefix();
+    let shared_prompt = format!(
+        "{prefix}\n\nReply with exactly CACHE_PROBE_OK and nothing else."
+    );
+
+    let session = ProxySession::new(&RunConfig::default());
+    let turn1 = session.run_prompt(&shared_prompt, false);
+    assert_eq!(turn1.exit_code, 0, "turn 1 stderr: {}", turn1.raw_stderr);
+    assert!(
+        turn1.response.contains("CACHE_PROBE_OK"),
+        "turn 1 response should contain CACHE_PROBE_OK, got: {}",
+        turn1.response
+    );
+
+    // Repeat the same user text on resume so the static prefix can hit cache_read.
+    let turn2 = session.run_prompt(&shared_prompt, true);
+    assert_eq!(turn2.exit_code, 0, "turn 2 stderr: {}", turn2.raw_stderr);
+    assert!(
+        turn2.response.contains("CACHE_PROBE_OK"),
+        "turn 2 response should contain CACHE_PROBE_OK, got: {}",
+        turn2.response
+    );
+
+    let usage = &turn2.turn_usage;
+    assert!(
+        usage.input_tokens > 0 && usage.output_tokens > 0,
+        "turn 2 should report token usage: {:?}",
+        usage
+    );
+    assert!(
+        usage.input_tokens >= usage.cached_input_tokens,
+        "input_tokens must be cache-inclusive (cached subset of input); got {:?}",
+        usage
+    );
+    assert!(
+        usage.non_cached_input() >= 0,
+        "non_cached_input = input_tokens - cached_input_tokens must be non-negative; got {:?}",
+        usage
+    );
+
+    let cache_active = usage.cached_input_tokens > 0 || usage.cache_creation_input_tokens > 0;
+    assert!(
+        cache_active,
+        "turn 2 should show prompt-cache activity (read or write); got {:?}",
+        usage
+    );
+
+    if usage.cached_input_tokens > 0 {
+        assert!(
+            usage.non_cached_input() < usage.input_tokens,
+            "cache-read turn should have cached input strictly below inclusive input; got {:?}",
+            usage
+        );
+    } else {
+        // Proxy may report a cache write on turn 2 when breakpoints shift; still
+        // proves cache-inclusive normalization (creation folded into input_tokens).
+        assert!(
+            usage.cache_creation_input_tokens > 0
+                && usage.input_tokens > usage.cache_creation_input_tokens,
+            "cache-creation turn should fold creation into cache-inclusive input_tokens; got {:?}",
+            usage
+        );
+    }
 }
 
 // ─── Thinking Tests ───

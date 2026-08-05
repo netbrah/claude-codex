@@ -1,0 +1,18 @@
+[
+  "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ws_equiv\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4.6\",\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}",
+  "",
+  "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srv_equiv_ws\",\"name\":\"web_search\",\"input\":{}}}",
+  "",
+  "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\": \\\"weather NYC\\\"}\"}}",
+  "",
+  "data: {\"type\":\"content_block_stop\",\"index\":0}",
+  "",
+  "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"web_search_tool_result\",\"tool_use_id\":\"srv_equiv_ws\",\"content\":[]}}",
+  "",
+  "data: {\"type\":\"content_block_stop\",\"index\":1}",
+  "",
+  "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}",
+  "",
+  "data: {\"type\":\"message_stop\"}",
+  ""
+]

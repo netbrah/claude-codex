@@ -1,0 +1,39 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "parts": [{ "text": "run ls in the project root" }]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "text": "I need a shell command",
+          "thought": true,
+          "thoughtSignature": "SIG_CHAIN="
+        },
+        {
+          "functionCall": {
+            "id": "equiv_call_chain",
+            "name": "shell",
+            "args": { "cmd": "ls" }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "equiv_call_chain",
+            "name": "shell",
+            "response": { "output": "README.md\nsrc" }
+          }
+        }
+      ]
+    },
+    { "role": "user", "parts": [{ "text": "turn-7-user" }] },
+    { "role": "model", "parts": [{ "text": "turn-8-model" }] }
+  ]
+}

@@ -3,8 +3,9 @@
 //!
 //! The official Lark grammar for the apply-patch format is:
 //!
-//! start: begin_patch hunk+ end_patch
+//! start: begin_patch environment_id? hunk+ end_patch
 //! begin_patch: "*** Begin Patch" LF
+//! environment_id: "*** Environment ID: " filename LF
 //! end_patch: "*** End Patch" LF?
 //!
 //! hunk: add_hunk | delete_hunk | update_hunk
@@ -31,15 +32,16 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-const BEGIN_PATCH_MARKER: &str = "*** Begin Patch";
-const END_PATCH_MARKER: &str = "*** End Patch";
-const ADD_FILE_MARKER: &str = "*** Add File: ";
-const DELETE_FILE_MARKER: &str = "*** Delete File: ";
-const UPDATE_FILE_MARKER: &str = "*** Update File: ";
-const MOVE_TO_MARKER: &str = "*** Move to: ";
-const EOF_MARKER: &str = "*** End of File";
-const CHANGE_CONTEXT_MARKER: &str = "@@ ";
-const EMPTY_CHANGE_CONTEXT_MARKER: &str = "@@";
+pub(crate) const BEGIN_PATCH_MARKER: &str = "*** Begin Patch";
+pub(crate) const ENVIRONMENT_ID_MARKER: &str = "*** Environment ID: ";
+pub(crate) const END_PATCH_MARKER: &str = "*** End Patch";
+pub(crate) const ADD_FILE_MARKER: &str = "*** Add File: ";
+pub(crate) const DELETE_FILE_MARKER: &str = "*** Delete File: ";
+pub(crate) const UPDATE_FILE_MARKER: &str = "*** Update File: ";
+pub(crate) const MOVE_TO_MARKER: &str = "*** Move to: ";
+pub(crate) const EOF_MARKER: &str = "*** End of File";
+pub(crate) const CHANGE_CONTEXT_MARKER: &str = "@@ ";
+pub(crate) const EMPTY_CHANGE_CONTEXT_MARKER: &str = "@@";
 
 /// Currently, the only OpenAI model that knowingly requires lenient parsing is
 /// gpt-4.1. While we could try to require everyone to pass in a strictness
@@ -173,44 +175,59 @@ enum ParseMode {
 
 fn parse_patch_text(patch: &str, mode: ParseMode) -> Result<ApplyPatchArgs, ParseError> {
     let lines: Vec<&str> = patch.trim().lines().collect();
-    let lines: &[&str] = match check_patch_boundaries_strict(&lines) {
-        Ok(()) => &lines,
-        Err(e) => match mode {
-            ParseMode::Strict => {
-                return Err(e);
-            }
-            ParseMode::Lenient => check_patch_boundaries_lenient(&lines, e)?,
-        },
+    let (patch_lines, hunk_lines) = match mode {
+        ParseMode::Strict => check_patch_boundaries_strict(&lines)?,
+        ParseMode::Lenient => check_patch_boundaries_lenient(&lines)?,
     };
 
+    let (environment_id, mut remaining_lines, mut line_number) =
+        parse_environment_id_preamble(hunk_lines)?;
     let mut hunks: Vec<Hunk> = Vec::new();
-    // The above checks ensure that lines.len() >= 2.
-    let last_line_index = lines.len().saturating_sub(1);
-    let mut remaining_lines = &lines[1..last_line_index];
-    let mut line_number = 2;
     while !remaining_lines.is_empty() {
         let (hunk, hunk_lines) = parse_one_hunk(remaining_lines, line_number)?;
         hunks.push(hunk);
         line_number += hunk_lines;
         remaining_lines = &remaining_lines[hunk_lines..]
     }
-    let patch = lines.join("\n");
+    let patch = patch_lines.join("\n");
     Ok(ApplyPatchArgs {
         hunks,
         patch,
         workdir: None,
+        environment_id,
     })
+}
+
+fn parse_environment_id_preamble<'a>(
+    hunk_lines: &'a [&'a str],
+) -> Result<(Option<String>, &'a [&'a str], usize), ParseError> {
+    let Some(first_line) = hunk_lines.first() else {
+        return Ok((None, hunk_lines, 2));
+    };
+    let Some(environment_id) = first_line.trim_start().strip_prefix(ENVIRONMENT_ID_MARKER) else {
+        return Ok((None, hunk_lines, 2));
+    };
+    let environment_id = environment_id.trim();
+    if environment_id.is_empty() {
+        return Err(InvalidPatchError(
+            "apply_patch environment_id cannot be empty".to_string(),
+        ));
+    }
+    Ok((Some(environment_id.to_string()), &hunk_lines[1..], 3))
 }
 
 /// Checks the start and end lines of the patch text for `apply_patch`,
 /// returning an error if they do not match the expected markers.
-fn check_patch_boundaries_strict(lines: &[&str]) -> Result<(), ParseError> {
+fn check_patch_boundaries_strict<'a>(
+    lines: &'a [&'a str],
+) -> Result<(&'a [&'a str], &'a [&'a str]), ParseError> {
     let (first_line, last_line) = match lines {
         [] => (None, None),
         [first] => (Some(first), Some(first)),
         [first, .., last] => (Some(first), Some(last)),
     };
-    check_start_and_end_lines_strict(first_line, last_line)
+    check_start_and_end_lines_strict(first_line, last_line)?;
+    Ok((lines, &lines[1..lines.len() - 1]))
 }
 
 /// If we are in lenient mode, we check if the first line starts with `<<EOF`
@@ -222,8 +239,12 @@ fn check_patch_boundaries_strict(lines: &[&str]) -> Result<(), ParseError> {
 /// contents, excluding the heredoc markers.
 fn check_patch_boundaries_lenient<'a>(
     original_lines: &'a [&'a str],
-    original_parse_error: ParseError,
-) -> Result<&'a [&'a str], ParseError> {
+) -> Result<(&'a [&'a str], &'a [&'a str]), ParseError> {
+    let original_parse_error = match check_patch_boundaries_strict(original_lines) {
+        Ok(lines) => return Ok(lines),
+        Err(e) => e,
+    };
+
     match original_lines {
         [first, .., last] => {
             if (first == &"<<EOF" || first == &"<<'EOF'" || first == &"<<\"EOF\"")
@@ -231,10 +252,7 @@ fn check_patch_boundaries_lenient<'a>(
                 && original_lines.len() >= 4
             {
                 let inner_lines = &original_lines[1..original_lines.len() - 1];
-                match check_patch_boundaries_strict(inner_lines) {
-                    Ok(()) => Ok(inner_lines),
-                    Err(e) => Err(e),
-                }
+                check_patch_boundaries_strict(inner_lines)
             } else {
                 Err(original_parse_error)
             }
@@ -266,10 +284,8 @@ fn check_start_and_end_lines_strict(
 /// Attempts to parse a single hunk from the start of lines.
 /// Returns the parsed hunk and the number of lines parsed (or a ParseError).
 fn parse_one_hunk(lines: &[&str], line_number: usize) -> Result<(Hunk, usize), ParseError> {
-    // Be tolerant of case mismatches and extra padding around marker strings.
     let first_line = lines[0].trim();
     if let Some(path) = first_line.strip_prefix(ADD_FILE_MARKER) {
-        // Add File
         let mut contents = String::new();
         let mut parsed_lines = 1;
         for add_line in &lines[1..] {
@@ -289,7 +305,6 @@ fn parse_one_hunk(lines: &[&str], line_number: usize) -> Result<(Hunk, usize), P
             parsed_lines,
         ));
     } else if let Some(path) = first_line.strip_prefix(DELETE_FILE_MARKER) {
-        // Delete File
         return Ok((
             DeleteFile {
                 path: PathBuf::from(path),
@@ -297,11 +312,8 @@ fn parse_one_hunk(lines: &[&str], line_number: usize) -> Result<(Hunk, usize), P
             1,
         ));
     } else if let Some(path) = first_line.strip_prefix(UPDATE_FILE_MARKER) {
-        // Update File
         let mut remaining_lines = &lines[1..];
         let mut parsed_lines = 1;
-
-        // Optional: move file line
         let move_path = remaining_lines
             .first()
             .and_then(|x| x.strip_prefix(MOVE_TO_MARKER));
@@ -312,16 +324,14 @@ fn parse_one_hunk(lines: &[&str], line_number: usize) -> Result<(Hunk, usize), P
         }
 
         let mut chunks = Vec::new();
-        // NOTE: we need to know to stop once we reach the next special marker header.
         while !remaining_lines.is_empty() {
-            // Skip over any completely blank lines that may separate chunks.
             if remaining_lines[0].trim().is_empty() {
                 parsed_lines += 1;
                 remaining_lines = &remaining_lines[1..];
                 continue;
             }
 
-            if remaining_lines[0].starts_with("***") {
+            if remaining_lines[0].starts_with('*') {
                 break;
             }
 
@@ -337,7 +347,10 @@ fn parse_one_hunk(lines: &[&str], line_number: usize) -> Result<(Hunk, usize), P
 
         if chunks.is_empty() {
             return Err(InvalidHunkError {
-                message: format!("Update file hunk for path '{path}' is empty"),
+                message: format!(
+                    "Update file hunk for path '{}' is empty",
+                    Path::new(path).display()
+                ),
                 line_number,
             });
         }
@@ -371,8 +384,6 @@ fn parse_update_file_chunk(
             line_number,
         });
     }
-    // If we see an explicit context marker @@ or @@ <context>, consume it; otherwise, optionally
-    // allow treating the chunk as starting directly with diff lines.
     let (change_context, start_index) = if lines[0] == EMPTY_CHANGE_CONTEXT_MARKER {
         (None, 1)
     } else if let Some(context) = lines[0].strip_prefix(CHANGE_CONTEXT_MARKER) {
@@ -451,6 +462,117 @@ fn parse_update_file_chunk(
     }
 
     Ok((chunk, parsed_lines + start_index))
+}
+
+#[test]
+fn test_parse_one_hunk() {
+    assert_eq!(
+        parse_one_hunk(&["bad"], /*line_number*/ 234),
+        Err(InvalidHunkError {
+            message: "'bad' is not a valid hunk header. \
+            Valid hunk headers: '*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'".to_string(),
+            line_number: 234
+        })
+    );
+}
+
+#[test]
+fn test_update_file_chunk() {
+    assert_eq!(
+        parse_update_file_chunk(
+            &["bad"],
+            /*line_number*/ 123,
+            /*allow_missing_context*/ false,
+        ),
+        Err(InvalidHunkError {
+            message: "Expected update hunk to start with a @@ context marker, got: 'bad'"
+                .to_string(),
+            line_number: 123
+        })
+    );
+    assert_eq!(
+        parse_update_file_chunk(
+            &["@@"],
+            /*line_number*/ 123,
+            /*allow_missing_context*/ false,
+        ),
+        Err(InvalidHunkError {
+            message: "Update hunk does not contain any lines".to_string(),
+            line_number: 124
+        })
+    );
+    assert_eq!(
+        parse_update_file_chunk(
+            &["@@", "bad"],
+            /*line_number*/ 123,
+            /*allow_missing_context*/ false,
+        ),
+        Err(InvalidHunkError {
+            message: "Unexpected line found in update hunk: 'bad'. Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)".to_string(),
+            line_number: 124
+        })
+    );
+    assert_eq!(
+        parse_update_file_chunk(
+            &["@@", "*** End of File"],
+            /*line_number*/ 123,
+            /*allow_missing_context*/ false,
+        ),
+        Err(InvalidHunkError {
+            message: "Update hunk does not contain any lines".to_string(),
+            line_number: 124
+        })
+    );
+    assert_eq!(
+        parse_update_file_chunk(
+            &[
+                "@@ change_context",
+                "",
+                " context",
+                "-remove",
+                "+add",
+                " context2",
+                "*** End Patch",
+            ],
+            /*line_number*/ 123,
+            /*allow_missing_context*/ false,
+        ),
+        Ok((
+            UpdateFileChunk {
+                change_context: Some("change_context".to_string()),
+                old_lines: vec![
+                    String::new(),
+                    "context".to_string(),
+                    "remove".to_string(),
+                    "context2".to_string(),
+                ],
+                new_lines: vec![
+                    String::new(),
+                    "context".to_string(),
+                    "add".to_string(),
+                    "context2".to_string(),
+                ],
+                is_end_of_file: false,
+            },
+            6,
+        ))
+    );
+    assert_eq!(
+        parse_update_file_chunk(
+            &["@@", "+line", "*** End of File"],
+            /*line_number*/ 123,
+            /*allow_missing_context*/ false,
+        ),
+        Ok((
+            UpdateFileChunk {
+                change_context: None,
+                old_lines: Vec::new(),
+                new_lines: vec!["line".to_string()],
+                is_end_of_file: true,
+            },
+            3,
+        ))
+    );
 }
 
 #[test]
@@ -736,6 +858,7 @@ fn test_parse_patch_lenient() {
             hunks: expected_patch.clone(),
             patch: patch_text.to_string(),
             workdir: None,
+            environment_id: None,
         })
     );
 
@@ -750,6 +873,7 @@ fn test_parse_patch_lenient() {
             hunks: expected_patch.clone(),
             patch: patch_text.to_string(),
             workdir: None,
+            environment_id: None,
         })
     );
 
@@ -764,6 +888,7 @@ fn test_parse_patch_lenient() {
             hunks: expected_patch,
             patch: patch_text.to_string(),
             workdir: None,
+            environment_id: None,
         })
     );
 
@@ -792,110 +917,38 @@ fn test_parse_patch_lenient() {
 }
 
 #[test]
-fn test_parse_one_hunk() {
+fn test_parse_patch_environment_id_preamble() {
     assert_eq!(
-        parse_one_hunk(&["bad"], /*line_number*/ 234),
-        Err(InvalidHunkError {
-            message: "'bad' is not a valid hunk header. \
-            Valid hunk headers: '*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'".to_string(),
-            line_number: 234
+        parse_patch_text(
+            "*** Begin Patch\n\
+             *** Environment ID: remote\n\
+             *** Add File: hello.txt\n\
+             +hello\n\
+             *** End Patch",
+            ParseMode::Strict
+        ),
+        Ok(ApplyPatchArgs {
+            hunks: vec![AddFile {
+                path: PathBuf::from("hello.txt"),
+                contents: "hello\n".to_string(),
+            }],
+            patch: "*** Begin Patch\n*** Environment ID: remote\n*** Add File: hello.txt\n+hello\n*** End Patch".to_string(),
+            workdir: None,
+            environment_id: Some("remote".to_string()),
         })
     );
-    // Other edge cases are already covered by tests above/below.
-}
 
-#[test]
-fn test_update_file_chunk() {
     assert_eq!(
-        parse_update_file_chunk(
-            &["bad"],
-            /*line_number*/ 123,
-            /*allow_missing_context*/ false
+        parse_patch_text(
+            "*** Begin Patch\n\
+             *** Environment ID:   \n\
+             *** Add File: hello.txt\n\
+             +hello\n\
+             *** End Patch",
+            ParseMode::Strict
         ),
-        Err(InvalidHunkError {
-            message: "Expected update hunk to start with a @@ context marker, got: 'bad'"
-                .to_string(),
-            line_number: 123
-        })
-    );
-    assert_eq!(
-        parse_update_file_chunk(
-            &["@@"],
-            /*line_number*/ 123,
-            /*allow_missing_context*/ false
-        ),
-        Err(InvalidHunkError {
-            message: "Update hunk does not contain any lines".to_string(),
-            line_number: 124
-        })
-    );
-    assert_eq!(
-        parse_update_file_chunk(&["@@", "bad"], /*line_number*/ 123, /*allow_missing_context*/ false),
-        Err(InvalidHunkError {
-            message:  "Unexpected line found in update hunk: 'bad'. \
-                       Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)".to_string(),
-            line_number: 124
-        })
-    );
-    assert_eq!(
-        parse_update_file_chunk(
-            &["@@", "*** End of File"],
-            /*line_number*/ 123,
-            /*allow_missing_context*/ false
-        ),
-        Err(InvalidHunkError {
-            message: "Update hunk does not contain any lines".to_string(),
-            line_number: 124
-        })
-    );
-    assert_eq!(
-        parse_update_file_chunk(
-            &[
-                "@@ change_context",
-                "",
-                " context",
-                "-remove",
-                "+add",
-                " context2",
-                "*** End Patch",
-            ],
-            /*line_number*/ 123,
-            /*allow_missing_context*/ false
-        ),
-        Ok((
-            (UpdateFileChunk {
-                change_context: Some("change_context".to_string()),
-                old_lines: vec![
-                    "".to_string(),
-                    "context".to_string(),
-                    "remove".to_string(),
-                    "context2".to_string()
-                ],
-                new_lines: vec![
-                    "".to_string(),
-                    "context".to_string(),
-                    "add".to_string(),
-                    "context2".to_string()
-                ],
-                is_end_of_file: false
-            }),
-            6
-        ))
-    );
-    assert_eq!(
-        parse_update_file_chunk(
-            &["@@", "+line", "*** End of File"],
-            /*line_number*/ 123,
-            /*allow_missing_context*/ false
-        ),
-        Ok((
-            (UpdateFileChunk {
-                change_context: None,
-                old_lines: vec![],
-                new_lines: vec!["line".to_string()],
-                is_end_of_file: true
-            }),
-            3
+        Err(InvalidPatchError(
+            "apply_patch environment_id cannot be empty".to_string()
         ))
     );
 }

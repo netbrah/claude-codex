@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "include": {
+      "description": "Optional glob that limits which files are searched (e.g. \"*.rs\" or \"*.{ts,tsx}\").",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Maximum number of file paths to return (defaults to 100).",
+      "type": "number"
+    },
+    "path": {
+      "description": "Directory or file path to search. Defaults to the session's working directory.",
+      "type": "string"
+    },
+    "pattern": {
+      "description": "Regular expression pattern to search for.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pattern"
+  ],
+  "type": "object"
+}

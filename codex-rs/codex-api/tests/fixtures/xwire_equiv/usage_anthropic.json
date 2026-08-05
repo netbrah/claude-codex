@@ -1,0 +1,9 @@
+{
+  "input_tokens": 100,
+  "cache_read_input_tokens": 50,
+  "cache_creation_input_tokens": 0,
+  "output_tokens": 42,
+  "output_tokens_details": {
+    "thinking_tokens": 15
+  }
+}

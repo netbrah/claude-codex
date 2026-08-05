@@ -1,0 +1,42 @@
+{
+  "_doc": "RI-012 fixture. Inbound Anthropic history contains an assistant tool_use without a matching user tool_result on the next turn — typical when the conversation was truncated mid-tool-call. XLI must STILL emit the FunctionCall on translate so downstream /responses receives the assistant's commitment; no synthetic FunctionCallOutput is fabricated (that would be a contract violation — the assistant didn't actually receive a result). Pairing is the model's job on the next inference turn, not the harness's. The fixture locks XLI's pass-through-the-orphan behavior.",
+  "request": {
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "user",
+        "content": "list files"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tu_orphan",
+            "name": "shell",
+            "input": { "command": "ls" }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_messages_input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "list files"
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "tu_orphan",
+      "name": "shell",
+      "arguments": "{\"command\":\"ls\"}"
+    }
+  ]
+}

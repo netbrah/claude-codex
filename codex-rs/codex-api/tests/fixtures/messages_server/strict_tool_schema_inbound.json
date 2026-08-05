@@ -1,0 +1,53 @@
+{
+  "_doc": "RI-024 fixture. /responses tools support a 'strict' mode (default false) that forces the model to produce JSON conforming exactly to the declared schema. Anthropic /v1/messages has no equivalent strict toggle on its tool defs; XLI's translate_inbound_tools passes input_schema → parameters verbatim and does NOT inject strict=true. The DEGRADES gap: downstream /responses tools default to non-strict, weakening the JSON contract on tool-call arguments. This fixture locks the current non-strict pass-through behavior + documents the closure target (strict=true injection or a schema-derived heuristic).",
+  "_known_gap": {
+    "ri": "RI-024",
+    "severity": "DEGRADES",
+    "description": "Anthropic tool defs have no strict flag; XLI's translate_inbound_tools does not inject strict=true on the Responses-shape projection. Tool-call arguments accordingly accept non-conformant JSON from the model. Closure options: inject strict=true unconditionally, or split tool defs into strict/non-strict buckets based on schema completeness (required/properties shape).",
+    "fix_location": "spokes/xli/codex-rs/codex-api/src/messages_server/inbound.rs::translate_inbound_tools"
+  },
+  "request": {
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Lookup a record",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" }
+          },
+          "required": ["id"]
+        }
+      }
+    ]
+  },
+  "expected_tools": [
+    {
+      "type": "function",
+      "name": "lookup",
+      "description": "Lookup a record",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ],
+  "_desired_tools_with_strict": [
+    {
+      "type": "function",
+      "name": "lookup",
+      "description": "Lookup a record",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ]
+}

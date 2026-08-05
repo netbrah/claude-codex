@@ -5,7 +5,8 @@
 //!
 //! The key contract is that time-sensitive values are interpreted relative to a caller-provided
 //! capture timestamp so stale detection and reset labels remain coherent for a given draw cycle.
-use crate::chatwidget::get_limits_duration;
+use crate::chatwidget::fallback_limit_label;
+use crate::chatwidget::limit_label_for_window;
 use crate::text_formatting::capitalize_first;
 
 use super::helpers::format_reset_timestamp;
@@ -13,10 +14,9 @@ use chrono::DateTime;
 use chrono::Duration as ChronoDuration;
 use chrono::Local;
 use chrono::Utc;
-use codex_protocol::protocol::CreditsSnapshot as CoreCreditsSnapshot;
-use codex_protocol::protocol::RateLimitSnapshot;
-use codex_protocol::protocol::RateLimitWindow;
-use codex_protocol::protocol::SpendControlSnapshot as CoreSpendControlSnapshot;
+use codex_app_server_protocol::CreditsSnapshot as CoreCreditsSnapshot;
+use codex_app_server_protocol::RateLimitSnapshot;
+use codex_app_server_protocol::RateLimitWindow;
 
 const STATUS_LIMIT_BAR_SEGMENTS: usize = 20;
 const STATUS_LIMIT_BAR_FILLED: &str = "█";
@@ -24,7 +24,7 @@ const STATUS_LIMIT_BAR_EMPTY: &str = "░";
 
 #[derive(Debug, Clone)]
 pub(crate) struct StatusRateLimitRow {
-    /// Human-readable row label, such as `"5h limit"` or `"Credits"`.
+    /// Human-readable row label, such as `"5h limit"`, `"Monthly limit"`, or `"Credits"`.
     pub label: String,
     /// Value payload for the row.
     pub value: StatusRateLimitValue,
@@ -80,9 +80,9 @@ impl RateLimitWindowDisplay {
         let resets_at = resets_at_utc.map(|dt| format_reset_timestamp(dt, captured_at));
 
         Self {
-            used_percent: window.used_percent,
+            used_percent: f64::from(window.used_percent),
             resets_at,
-            window_minutes: window.window_minutes,
+            window_minutes: window.window_duration_mins,
         }
     }
 }
@@ -93,14 +93,12 @@ pub(crate) struct RateLimitSnapshotDisplay {
     pub limit_name: String,
     /// Local timestamp representing when this display snapshot was captured.
     pub captured_at: DateTime<Local>,
-    /// Primary usage window (typically short duration).
+    /// Primary usage window.
     pub primary: Option<RateLimitWindowDisplay>,
-    /// Secondary usage window (typically weekly).
+    /// Secondary usage window.
     pub secondary: Option<RateLimitWindowDisplay>,
     /// Optional credits metadata when available.
     pub credits: Option<CreditsSnapshotDisplay>,
-    /// Optional spend-control metadata for usage-based workspace plans.
-    pub spend_control: Option<SpendControlSnapshotDisplay>,
 }
 
 /// Display-ready credits state extracted from protocol snapshots.
@@ -112,13 +110,6 @@ pub(crate) struct CreditsSnapshotDisplay {
     pub unlimited: bool,
     /// Raw balance text as provided by the backend.
     pub balance: Option<String>,
-}
-
-/// Display-ready spend-control state extracted from protocol snapshots.
-#[derive(Debug, Clone)]
-pub(crate) struct SpendControlSnapshotDisplay {
-    /// Whether a workspace spend cap is currently blocking usage.
-    pub reached: bool,
 }
 
 /// Converts a protocol snapshot into UI-friendly display data.
@@ -150,10 +141,6 @@ pub(crate) fn rate_limit_snapshot_display_for_limit(
             .as_ref()
             .map(|window| RateLimitWindowDisplay::from_window(window, captured_at)),
         credits: snapshot.credits.as_ref().map(CreditsSnapshotDisplay::from),
-        spend_control: snapshot
-            .spend_control
-            .as_ref()
-            .map(SpendControlSnapshotDisplay::from),
     }
 }
 
@@ -163,14 +150,6 @@ impl From<&CoreCreditsSnapshot> for CreditsSnapshotDisplay {
             has_credits: value.has_credits,
             unlimited: value.unlimited,
             balance: value.balance.clone(),
-        }
-    }
-}
-
-impl From<&CoreSpendControlSnapshot> for SpendControlSnapshotDisplay {
-    fn from(value: &CoreSpendControlSnapshot) -> Self {
-        Self {
-            reached: value.reached,
         }
     }
 }
@@ -197,7 +176,7 @@ pub(crate) fn compose_rate_limit_data_many(
         return StatusRateLimitData::Missing;
     }
 
-    let mut rows = Vec::with_capacity(snapshots.len().saturating_mul(4));
+    let mut rows = Vec::with_capacity(snapshots.len().saturating_mul(3));
     let mut stale = false;
 
     for snapshot in snapshots {
@@ -210,21 +189,13 @@ pub(crate) fn compose_rate_limit_data_many(
             .primary
             .as_ref()
             .map(|window| {
-                window
-                    .window_minutes
-                    .map(get_limits_duration)
-                    .unwrap_or_else(|| "5h".to_string())
+                limit_label_for_window(window.window_minutes, /*is_secondary*/ false)
             })
             .map(|label| capitalize_first(&label));
         let secondary_label = snapshot
             .secondary
             .as_ref()
-            .map(|window| {
-                window
-                    .window_minutes
-                    .map(get_limits_duration)
-                    .unwrap_or_else(|| "weekly".to_string())
-            })
+            .map(|window| limit_label_for_window(window.window_minutes, /*is_secondary*/ true))
             .map(|label| capitalize_first(&label));
         let window_count =
             usize::from(snapshot.primary.is_some()) + usize::from(snapshot.secondary.is_some());
@@ -242,12 +213,16 @@ pub(crate) fn compose_rate_limit_data_many(
                 format!(
                     "{} {} limit",
                     limit_bucket_label,
-                    primary_label.clone().unwrap_or_else(|| "5h".to_string())
+                    primary_label.clone().unwrap_or_else(|| capitalize_first(
+                        fallback_limit_label(/*is_secondary*/ false)
+                    ))
                 )
             } else {
                 format!(
                     "{} limit",
-                    primary_label.clone().unwrap_or_else(|| "5h".to_string())
+                    primary_label.clone().unwrap_or_else(|| capitalize_first(
+                        fallback_limit_label(/*is_secondary*/ false)
+                    ))
                 )
             };
             rows.push(StatusRateLimitRow {
@@ -264,16 +239,16 @@ pub(crate) fn compose_rate_limit_data_many(
                 format!(
                     "{} {} limit",
                     limit_bucket_label,
-                    secondary_label
-                        .clone()
-                        .unwrap_or_else(|| "weekly".to_string())
+                    secondary_label.clone().unwrap_or_else(|| capitalize_first(
+                        fallback_limit_label(/*is_secondary*/ true)
+                    ))
                 )
             } else {
                 format!(
                     "{} limit",
-                    secondary_label
-                        .clone()
-                        .unwrap_or_else(|| "weekly".to_string())
+                    secondary_label.clone().unwrap_or_else(|| capitalize_first(
+                        fallback_limit_label(/*is_secondary*/ true)
+                    ))
                 )
             };
             rows.push(StatusRateLimitRow {
@@ -283,12 +258,6 @@ pub(crate) fn compose_rate_limit_data_many(
                     resets_at: secondary.resets_at.clone(),
                 },
             });
-        }
-
-        if let Some(spend_control) = snapshot.spend_control.as_ref()
-            && let Some(row) = spend_control_status_row(spend_control)
-        {
-            rows.push(row);
         }
 
         if let Some(credits) = snapshot.credits.as_ref()
@@ -350,15 +319,6 @@ fn credit_status_row(credits: &CreditsSnapshotDisplay) -> Option<StatusRateLimit
     })
 }
 
-fn spend_control_status_row(
-    spend_control: &SpendControlSnapshotDisplay,
-) -> Option<StatusRateLimitRow> {
-    spend_control.reached.then(|| StatusRateLimitRow {
-        label: "Spend cap".to_string(),
-        value: StatusRateLimitValue::Text("Reached".to_string()),
-    })
-}
-
 fn format_credit_balance(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -386,7 +346,6 @@ mod tests {
     use super::CreditsSnapshotDisplay;
     use super::RateLimitSnapshotDisplay;
     use super::RateLimitWindowDisplay;
-    use super::SpendControlSnapshotDisplay;
     use super::StatusRateLimitData;
     use super::compose_rate_limit_data_many;
     use chrono::Local;
@@ -413,7 +372,6 @@ mod tests {
                 unlimited: false,
                 balance: Some("25".to_string()),
             }),
-            spend_control: None,
         };
         let other = RateLimitSnapshotDisplay {
             limit_name: "codex-other".to_string(),
@@ -425,7 +383,6 @@ mod tests {
                 unlimited: false,
                 balance: Some("99".to_string()),
             }),
-            spend_control: None,
         };
 
         let rows = match compose_rate_limit_data_many(&[codex, other], now) {
@@ -460,10 +417,9 @@ mod tests {
             secondary: Some(RateLimitWindowDisplay {
                 used_percent: 40.0,
                 resets_at: Some("later".to_string()),
-                window_minutes: None,
+                window_minutes: Some(2 * 60),
             }),
             credits: None,
-            spend_control: None,
         };
 
         let rows = match compose_rate_limit_data_many(&[other], now) {
@@ -475,33 +431,9 @@ mod tests {
             labels,
             vec![
                 "codex-other limit".to_string(),
-                "1h limit".to_string(),
-                "Weekly limit".to_string(),
+                "Usage limit".to_string(),
+                "Secondary usage limit".to_string(),
             ]
         );
-    }
-
-    #[test]
-    fn spend_cap_reached_renders_status_row_without_windows() {
-        let now = Local::now();
-        let snapshot = RateLimitSnapshotDisplay {
-            limit_name: "codex".to_string(),
-            captured_at: now,
-            primary: None,
-            secondary: None,
-            credits: Some(CreditsSnapshotDisplay {
-                has_credits: true,
-                unlimited: false,
-                balance: None,
-            }),
-            spend_control: Some(SpendControlSnapshotDisplay { reached: true }),
-        };
-
-        let rows = match compose_rate_limit_data_many(&[snapshot], now) {
-            StatusRateLimitData::Available(rows) => rows,
-            other => panic!("unexpected status: {other:?}"),
-        };
-        let labels: Vec<String> = rows.iter().map(|row| row.label.clone()).collect();
-        assert_eq!(labels, vec!["Spend cap".to_string()]);
     }
 }

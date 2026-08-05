@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Tests for `metadata.user_id` propagation in Anthropic Messages API requests.
 //!
 //! Covers:
@@ -6,15 +7,24 @@
 //! - Request body capture to verify metadata flows through the transport layer
 //! - Edge cases: empty user_id, unicode, long values
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use codex_api::endpoint::messages::{MessagesApiMetadata, MessagesApiRequest};
-use codex_api::{AuthProvider, MessagesClient, Provider};
-use codex_client::{HttpTransport, Request, Response, StreamResponse, TransportError};
-use http::{HeaderMap, StatusCode};
+use codex_api::AuthProvider;
+use codex_api::MessagesApiMetadata;
+use codex_api::MessagesApiRequest;
+use codex_api::MessagesClient;
+use codex_api::Provider;
+use codex_client::HttpTransport;
+use codex_client::Request;
+use codex_client::Response;
+use codex_client::StreamResponse;
+use codex_client::TransportError;
+use http::HeaderMap;
+use http::StatusCode;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -54,7 +64,7 @@ impl HttpTransport for CapturingTransport {
 
     async fn stream(&self, req: Request) -> Result<StreamResponse, TransportError> {
         // Capture the JSON request body (already a serde_json::Value).
-        if let Some(body) = req.body {
+        if let Some(codex_client::RequestBody::Json(body)) = req.body {
             *self.captured_body.lock().unwrap() = Some(body);
         }
 
@@ -72,10 +82,9 @@ impl HttpTransport for CapturingTransport {
 #[derive(Clone, Default)]
 struct NoAuth;
 
+#[async_trait::async_trait]
 impl AuthProvider for NoAuth {
-    fn bearer_token(&self) -> Option<String> {
-        None
-    }
+    fn add_auth_headers(&self, _headers: &mut http::HeaderMap) {}
 }
 
 fn test_provider() -> Provider {
@@ -84,7 +93,7 @@ fn test_provider() -> Provider {
         base_url: "https://example.com/v1".to_string(),
         query_params: None,
         headers: HeaderMap::new(),
-        retry: codex_api::provider::RetryConfig {
+        retry: codex_api::RetryConfig {
             max_attempts: 1,
             base_delay: Duration::from_millis(1),
             retry_429: false,
@@ -130,6 +139,7 @@ fn request_with_metadata(metadata: Option<MessagesApiMetadata>) -> MessagesApiRe
         tools: None,
         tool_choice: None,
         thinking: None,
+        output_config: None,
         temperature: None,
         top_p: None,
         top_k: None,
@@ -217,6 +227,7 @@ fn request_preserves_all_fields_alongside_metadata() {
         tools: Some(vec![json!({"type": "function", "name": "shell"})]),
         tool_choice: Some(json!({"type": "any"})),
         thinking: Some(json!({"type": "enabled", "budget_tokens": 8192})),
+        output_config: None,
         temperature: Some(0.0),
         top_p: Some(0.9),
         top_k: Some(40),
@@ -248,7 +259,11 @@ fn request_preserves_all_fields_alongside_metadata() {
 #[tokio::test]
 async fn metadata_flows_through_transport_layer() {
     let transport = CapturingTransport::new(minimal_sse_response());
-    let client = MessagesClient::new(transport.clone(), test_provider(), NoAuth);
+    let client = MessagesClient::new(
+        transport.clone(),
+        test_provider(),
+        std::sync::Arc::new(NoAuth),
+    );
 
     let request = request_with_metadata(Some(MessagesApiMetadata {
         user_id: "test-user".to_string(),
@@ -274,7 +289,11 @@ async fn metadata_flows_through_transport_layer() {
 #[tokio::test]
 async fn no_metadata_when_none_flows_through_transport() {
     let transport = CapturingTransport::new(minimal_sse_response());
-    let client = MessagesClient::new(transport.clone(), test_provider(), NoAuth);
+    let client = MessagesClient::new(
+        transport.clone(),
+        test_provider(),
+        std::sync::Arc::new(NoAuth),
+    );
 
     let request = request_with_metadata(None);
     let stream = client
@@ -297,7 +316,11 @@ async fn no_metadata_when_none_flows_through_transport() {
 #[tokio::test]
 async fn metadata_does_not_interfere_with_response_parsing() {
     let transport = CapturingTransport::new(minimal_sse_response());
-    let client = MessagesClient::new(transport.clone(), test_provider(), NoAuth);
+    let client = MessagesClient::new(
+        transport.clone(),
+        test_provider(),
+        std::sync::Arc::new(NoAuth),
+    );
 
     let request = request_with_metadata(Some(MessagesApiMetadata {
         user_id: "test-parsing".to_string(),

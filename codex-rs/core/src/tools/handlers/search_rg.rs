@@ -1,4 +1,4 @@
-//! Shared ripgrep search helpers (and
+//! Shared ripgrep search helpers used by `analyze_symbol_source` (and
 //! any future tool that needs manifest-filtered searches).
 //!
 //! This module owns the two primitives that avoid directory-traversal /
@@ -38,7 +38,9 @@ pub(super) fn make_scope_tempfile(
     // Canonicalize scope_path so it matches the canonicalized absolute paths
     // written by build_manifest. Without this, macOS /var -> /private/var
     // symlinks cause starts_with mismatches.
-    let canonical_scope = scope_path.canonicalize().unwrap_or_else(|_| scope_path.to_path_buf());
+    let canonical_scope = scope_path
+        .canonicalize()
+        .unwrap_or_else(|_| scope_path.to_path_buf());
     let files = filter_manifest(manifest_path, &canonical_scope).ok()?;
     if files.is_empty() {
         return None;

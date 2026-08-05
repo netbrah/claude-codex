@@ -1,0 +1,24 @@
+{
+  "_doc": "Pi-IR projection of mcp_namespace_roundtrip/messages_sse.json — pi consumes the same SSE and emits a single toolCall block keeping the FLAT mcp__server__tool wire name verbatim. Pi does not split MCP namespaces (its consumer is Claude Code, which routes via the registered tool name string). XLI's projection helper (parse_flat_mcp_tool_name) splits the flat name into (namespace=\"mcp__clangd_rs\", bare_name=\"analyze_symbol\") at content_block_start. Closes RI-004 (tool_use FunctionCall lifecycle), RI-007 (MCP namespace split — ASYMMETRIC verdict), RI-025 (cross-wire FunctionCall.name consistency).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:tool_use:1031",
+    "event.type:content_block_delta:1047",
+    "delta.type:input_json_delta:1072",
+    "event.type:content_block_stop:1095",
+    "block.type:toolCall:1114",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_xli_target": "ResponseItem[FunctionCall{namespace: Some(\"mcp__clangd_rs\"), name: \"analyze_symbol\"}]",
+  "output_content": [
+    {
+      "type": "toolCall",
+      "id": "mcp_ns_call_1",
+      "name": "mcp__clangd_rs__analyze_symbol",
+      "arguments": { "path": "main.rs" }
+    }
+  ]
+}

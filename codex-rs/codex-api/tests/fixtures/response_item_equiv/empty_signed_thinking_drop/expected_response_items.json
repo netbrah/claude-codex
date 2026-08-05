@@ -1,0 +1,16 @@
+{
+  "ri_ids": ["RI-019"],
+  "_doc": "RI-019 — S-OPUS47-EMPTY-THINKING drop policy. Opus 4.7 adaptive thinking (display=summarized/omitted), notably on the Vertex route, streams a signature_delta but withholds every thinking_delta. Persisting a Reasoning with raw_wire_block={type:thinking,thinking:'',signature:<real>} and replaying it on the next turn fails Anthropic's verifier with 'messages.N.content.M: thinking blocks in the latest assistant message cannot be modified' — the signature was computed over content the proxy never returned. XLI deliberately DROPS the empty-thinking block (sse/messages.rs:614-620); only the subsequent text Message survives.",
+  "items": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "answer"
+        }
+      ]
+    }
+  ]
+}

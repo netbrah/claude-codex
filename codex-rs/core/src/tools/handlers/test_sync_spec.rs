@@ -1,0 +1,222 @@
+use codex_tools::JsonSchema;
+use codex_tools::ResponsesApiTool;
+use codex_tools::ToolSpec;
+use std::collections::BTreeMap;
+
+pub fn create_test_sync_tool() -> ToolSpec {
+    let barrier_properties = BTreeMap::from([
+        (
+            "id".to_string(),
+            JsonSchema::string(Some(
+                "Identifier shared by concurrent calls that should rendezvous".to_string(),
+            )),
+        ),
+        (
+            "participants".to_string(),
+            JsonSchema::number(Some(
+                "Number of tool calls that must arrive before the barrier opens".to_string(),
+            )),
+        ),
+        (
+            "timeout_ms".to_string(),
+            JsonSchema::number(Some(
+                "Maximum time in milliseconds to wait at the barrier".to_string(),
+            )),
+        ),
+    ]);
+
+    let properties = BTreeMap::from([
+        (
+            "sleep_before_ms".to_string(),
+            JsonSchema::number(Some(
+                "Optional delay in milliseconds before any other action".to_string(),
+            )),
+        ),
+        (
+            "sleep_after_ms".to_string(),
+            JsonSchema::number(Some(
+                "Optional delay in milliseconds after completing the barrier".to_string(),
+            )),
+        ),
+        (
+            "barrier".to_string(),
+            JsonSchema::object(
+                barrier_properties,
+                Some(vec!["id".to_string(), "participants".to_string()]),
+                Some(false.into()),
+            ),
+        ),
+    ]);
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: "test_sync_tool".to_string(),
+        description: "Internal synchronization helper used by Codex integration tests.".to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(properties, /*required*/ None, Some(false.into())),
+        output_schema: None,
+    })
+}
+
+pub fn create_find_files_tool() -> ToolSpec {
+    let properties = BTreeMap::from([
+        (
+            "pattern".to_string(),
+            JsonSchema::string(Some(
+                "Fuzzy search pattern to match against file and directory paths.".to_string(),
+            )),
+        ),
+        (
+            "path".to_string(),
+            JsonSchema::string(Some(
+                "Absolute path to the directory to search in. Defaults to the current working directory.".to_string(),
+            )),
+        ),
+    ]);
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: "find_files".to_string(),
+        description:
+            "Fast fuzzy file search across directory trees. Finds files and directories by name using a fuzzy matching algorithm, respecting .gitignore rules. Useful for quickly locating files in large repositories without needing external tools like fd or find."
+                .to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            properties,
+            Some(vec!["pattern".to_string()]),
+            Some(false.into()),
+        ),
+        output_schema: None,
+    })
+}
+
+pub fn create_read_file_tool() -> ToolSpec {
+    let indentation_properties = BTreeMap::from([
+        (
+            "anchor_line".to_string(),
+            JsonSchema::number(Some(
+                "Anchor line to center the indentation lookup on (defaults to offset).".to_string(),
+            )),
+        ),
+        (
+            "max_levels".to_string(),
+            JsonSchema::number(Some(
+                "How many parent indentation levels (smaller indents) to include.".to_string(),
+            )),
+        ),
+        (
+            "include_siblings".to_string(),
+            JsonSchema::boolean(Some(
+                "When true, include additional blocks that share the anchor indentation."
+                    .to_string(),
+            )),
+        ),
+        (
+            "include_header".to_string(),
+            JsonSchema::boolean(Some(
+                "Include doc comments or attributes directly above the selected block.".to_string(),
+            )),
+        ),
+        (
+            "max_lines".to_string(),
+            JsonSchema::number(Some(
+                "Hard cap on the number of lines returned when using indentation mode.".to_string(),
+            )),
+        ),
+    ]);
+
+    let properties = BTreeMap::from([
+        (
+            "file_path".to_string(),
+            JsonSchema::string(Some("Absolute path to the file".to_string())),
+        ),
+        (
+            "offset".to_string(),
+            JsonSchema::number(Some(
+                "The line number to start reading from. Must be 1 or greater.".to_string(),
+            )),
+        ),
+        (
+            "limit".to_string(),
+            JsonSchema::number(Some("The maximum number of lines to return.".to_string())),
+        ),
+        (
+            "mode".to_string(),
+            JsonSchema::string(Some(
+                "Optional mode selector: \"slice\" for simple ranges (default) or \"indentation\" \
+                 to expand around an anchor line."
+                    .to_string(),
+            )),
+        ),
+        (
+            "indentation".to_string(),
+            JsonSchema::object(indentation_properties, None, Some(false.into())),
+        ),
+    ]);
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: "read_file".to_string(),
+        description:
+            "Reads a local file with 1-indexed line numbers, supporting slice and indentation-aware block modes."
+                .to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            properties,
+            Some(vec!["file_path".to_string()]),
+            Some(false.into()),
+        ),
+        output_schema: None,
+    })
+}
+
+pub fn create_grep_files_tool() -> ToolSpec {
+    let properties = BTreeMap::from([
+        (
+            "pattern".to_string(),
+            JsonSchema::string(Some(
+                "Regular expression pattern to search for.".to_string(),
+            )),
+        ),
+        (
+            "include".to_string(),
+            JsonSchema::string(Some(
+                "Optional glob that limits which files are searched (e.g. \"*.rs\" or \
+                 \"*.{ts,tsx}\")."
+                    .to_string(),
+            )),
+        ),
+        (
+            "path".to_string(),
+            JsonSchema::string(Some(
+                "Directory or file path to search. Defaults to the session's working directory."
+                    .to_string(),
+            )),
+        ),
+        (
+            "limit".to_string(),
+            JsonSchema::number(Some(
+                "Maximum number of file paths to return (defaults to 100).".to_string(),
+            )),
+        ),
+    ]);
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: "grep_files".to_string(),
+        description: "Finds files whose contents match the pattern and lists them by modification \
+                      time."
+            .to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            properties,
+            Some(vec!["pattern".to_string()]),
+            Some(false.into()),
+        ),
+        output_schema: None,
+    })
+}
+
+#[cfg(test)]
+#[path = "test_sync_spec_tests.rs"]
+mod tests;

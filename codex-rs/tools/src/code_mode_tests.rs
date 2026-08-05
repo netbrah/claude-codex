@@ -1,12 +1,11 @@
 use super::augment_tool_spec_for_code_mode;
-use super::create_code_mode_tool;
-use super::create_wait_tool;
 use super::tool_spec_to_code_mode_tool_definition;
 use crate::AdditionalProperties;
 use crate::FreeformTool;
 use crate::FreeformToolFormat;
 use crate::JsonSchema;
 use crate::ResponsesApiTool;
+use crate::ToolName;
 use crate::ToolSpec;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -106,6 +105,7 @@ fn tool_spec_to_code_mode_tool_definition_returns_augmented_nested_tools() {
         tool_spec_to_code_mode_tool_definition(&spec),
         Some(codex_code_mode::ToolDefinition {
             name: "apply_patch".to_string(),
+            tool_name: ToolName::plain("apply_patch"),
             description: r#"Apply a patch
 
 exec tool declaration:
@@ -133,84 +133,5 @@ fn tool_spec_to_code_mode_tool_definition_skips_unsupported_variants() {
             ),
         }),
         None
-    );
-}
-
-#[test]
-fn create_wait_tool_matches_expected_spec() {
-    assert_eq!(
-        create_wait_tool(),
-        ToolSpec::Function(ResponsesApiTool {
-            name: codex_code_mode::WAIT_TOOL_NAME.to_string(),
-            description: format!(
-                "Waits on a yielded `{}` cell and returns new output or completion.\n{}",
-                codex_code_mode::PUBLIC_TOOL_NAME,
-                codex_code_mode::build_wait_tool_description().trim()
-            ),
-            strict: false,
-            defer_loading: None,
-            parameters: JsonSchema::object(BTreeMap::from([
-                    (
-                        "cell_id".to_string(),
-                        JsonSchema::string(Some("Identifier of the running exec cell.".to_string()),),
-                    ),
-                    (
-                        "max_tokens".to_string(),
-                        JsonSchema::number(Some(
-                                "Maximum number of output tokens to return for this wait call."
-                                    .to_string(),
-                            ),),
-                    ),
-                    (
-                        "terminate".to_string(),
-                        JsonSchema::boolean(Some(
-                                "Whether to terminate the running exec cell.".to_string(),
-                            ),),
-                    ),
-                    (
-                        "yield_time_ms".to_string(),
-                        JsonSchema::number(Some(
-                                "How long to wait (in milliseconds) for more output before yielding again."
-                                    .to_string(),
-                            ),),
-                    ),
-                ]), Some(vec!["cell_id".to_string()]), Some(false.into())),
-            output_schema: None,
-        })
-    );
-}
-
-#[test]
-fn create_code_mode_tool_matches_expected_spec() {
-    let enabled_tools = vec![("update_plan".to_string(), "Update the plan".to_string())];
-
-    assert_eq!(
-        create_code_mode_tool(
-            &enabled_tools,
-            &BTreeMap::new(),
-            /*code_mode_only_enabled*/ true,
-        ),
-        ToolSpec::Freeform(FreeformTool {
-            name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
-            description: codex_code_mode::build_exec_tool_description(
-                &enabled_tools,
-                &BTreeMap::new(),
-                /*code_mode_only*/ true
-            ),
-            format: FreeformToolFormat {
-                r#type: "grammar".to_string(),
-                syntax: "lark".to_string(),
-                definition: r#"
-start: pragma_source | plain_source
-pragma_source: PRAGMA_LINE NEWLINE SOURCE
-plain_source: SOURCE
-
-PRAGMA_LINE: /[ \t]*\/\/ @exec:[^\r\n]*/
-NEWLINE: /\r?\n/
-SOURCE: /[\s\S]+/
-"#
-                .to_string(),
-            },
-        })
     );
 }

@@ -1,0 +1,33 @@
+---
+source: provider-gemini/tests/schema_snapshots.rs
+expression: sanitized
+---
+{
+  "additionalProperties": false,
+  "properties": {
+    "contextLines": {
+      "description": "Number of source lines to include around the definition (default 50).",
+      "type": "number"
+    },
+    "maxCallees": {
+      "description": "Maximum number of callees to extract from the definition (default 20).",
+      "type": "number"
+    },
+    "maxCallers": {
+      "description": "Maximum number of callers (references) to return (default 15).",
+      "type": "number"
+    },
+    "scopePath": {
+      "description": "Directory to search in. Defaults to the session's working directory.",
+      "type": "string"
+    },
+    "symbol": {
+      "description": "Symbol name to analyze (plain or qualified, e.g. `my_func` or \n                 `MyStruct::my_method`).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "symbol"
+  ],
+  "type": "object"
+}

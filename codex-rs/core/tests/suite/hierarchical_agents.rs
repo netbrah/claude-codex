@@ -27,11 +27,12 @@ async fn hierarchical_agents_appends_to_project_doc_in_user_instructions() {
         })
         .with_workspace_setup(|cwd, fs| async move {
             let agents_md = cwd.join("AGENTS.md");
-            fs.write_file(&agents_md, b"be nice".to_vec()).await?;
+            fs.write_file(&agents_md, b"be nice".to_vec(), /*sandbox*/ None)
+                .await?;
             Ok::<(), anyhow::Error>(())
         });
     let test = builder
-        .build_remote_aware(&server)
+        .build_with_remote_env(&server)
         .await
         .expect("build test codex");
 
@@ -75,7 +76,7 @@ async fn hierarchical_agents_emits_when_no_project_doc() {
             .expect("test config should allow feature update");
     });
     let test = builder
-        .build_remote_aware(&server)
+        .build_with_remote_env(&server)
         .await
         .expect("build test codex");
 

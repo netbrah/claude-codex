@@ -1,0 +1,27 @@
+[
+  {
+    "type": "response.created",
+    "response": { "id": "resp_ws_equiv" }
+  },
+  {
+    "type": "response.output_item.added",
+    "item": {
+      "type": "web_search_call",
+      "id": "srv_equiv_ws",
+      "status": "in_progress"
+    }
+  },
+  {
+    "type": "response.output_item.done",
+    "item": {
+      "type": "web_search_call",
+      "id": "srv_equiv_ws",
+      "status": "completed",
+      "action": { "type": "search", "query": "weather NYC" }
+    }
+  },
+  {
+    "type": "response.completed",
+    "response": { "id": "resp_ws_equiv" }
+  }
+]

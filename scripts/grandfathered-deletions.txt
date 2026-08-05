@@ -1,0 +1,8 @@
+.codex/skills/babysit-pr/agents/openai.yaml
+.codex/skills/babysit-pr/references/github-api-notes.md
+.codex/skills/babysit-pr/references/heuristics.md
+.codex/skills/babysit-pr/scripts/gh_pr_watch.py
+.codex/skills/babysit-pr/scripts/test_gh_pr_watch.py
+.codex/skills/remote-tests/SKILL.md
+codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_unix_update_available_history_cell_snapshot.snap
+codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_windows_update_available_history_cell_snapshot.snap

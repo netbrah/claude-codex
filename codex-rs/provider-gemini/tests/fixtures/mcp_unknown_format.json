@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "card_number": { "type": "string", "format": "credit-card" },
+    "phone": { "type": "string", "format": "phone-number" },
+    "email": { "type": "string", "format": "email" },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

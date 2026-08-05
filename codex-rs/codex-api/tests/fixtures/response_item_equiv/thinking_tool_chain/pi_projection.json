@@ -1,0 +1,33 @@
+{
+  "_doc": "Pi-IR projection of thinking_tool_chain/messages_sse.json — pi consumes the same SSE and emits a thinking block followed by a toolCall block. Closes RI-020 (raw_wire_block preservation) + RI-026 (Gemini thoughtSignature on tool chains, equivalent semantics across wires).",
+  "_pi_source_sha": "712b06cc91d2",
+  "_pi_state_machine_branches_exercised": [
+    "event.type:message_start:1010",
+    "event.type:content_block_start:1022",
+    "content_block.type:thinking:1027",
+    "event.type:content_block_delta:1047",
+    "delta.type:thinking_delta:1060",
+    "delta.type:signature_delta:1085",
+    "event.type:content_block_stop:1095",
+    "block.type:thinking:1107",
+    "content_block.type:tool_use:1031",
+    "delta.type:input_json_delta:1072",
+    "block.type:toolCall:1114",
+    "event.type:message_delta:1132",
+    "event.type:message_stop:1145"
+  ],
+  "_xli_target": "ResponseItem[Reasoning{raw_wire_block}, FunctionCall]",
+  "output_content": [
+    {
+      "type": "thinking",
+      "thinking": "I need a shell command",
+      "thinkingSignature": "SIG_CHAIN="
+    },
+    {
+      "type": "toolCall",
+      "id": "equiv_call_chain",
+      "name": "shell",
+      "arguments": { "cmd": "ls" }
+    }
+  ]
+}

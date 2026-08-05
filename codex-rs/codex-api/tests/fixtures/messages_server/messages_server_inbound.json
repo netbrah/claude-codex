@@ -1,0 +1,190 @@
+{
+  "request": {
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 4096,
+    "system": "You are a coding assistant.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Search the repo for TODO comments."
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I'll grep for TODO markers."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_inbound_1",
+            "name": "grep",
+            "input": {
+              "pattern": "TODO",
+              "path": "src"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_inbound_1",
+            "content": "src/main.rs:42: // TODO: fix"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Found one TODO in src/main.rs."
+      }
+    ],
+    "tools": [
+      {
+        "name": "grep",
+        "description": "Search file contents",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "pattern": { "type": "string" },
+            "path": { "type": "string" }
+          },
+          "required": ["pattern"]
+        }
+      },
+      {
+        "type": "web_search_20250305",
+        "name": "web_search"
+      }
+    ],
+    "tool_choice": { "type": "auto" },
+    "thinking": { "type": "adaptive" }
+  },
+  "expected_thinking": { "type": "adaptive" },
+  "_known_drift": {
+    "ri": "RI-018",
+    "severity": "DEGRADES",
+    "description": "translate_assistant_message pushes FunctionCall items eagerly inside the block loop but BUFFERS sibling Text/Thinking blocks into a single assistant Message that is pushed AFTER the loop. Emission order therefore violates wire-block order when a single assistant message contains [Text, ToolUse]: XLI emits [FunctionCall, Message{Text}], not [Message{Text}, FunctionCall]. The reordering is observable to downstream provider on /responses replay; the desired (block-order-preserving) shape is captured in _desired_messages_input.",
+    "fix_location": "spokes/xli/codex-rs/codex-api/src/messages_server/inbound.rs::translate_assistant_message"
+  },
+  "expected_messages_input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Search the repo for TODO comments."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "toolu_inbound_1",
+      "name": "grep",
+      "arguments": "{\"path\":\"src\",\"pattern\":\"TODO\"}"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I'll grep for TODO markers."
+        }
+      ]
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "toolu_inbound_1",
+      "output": "src/main.rs:42: // TODO: fix"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Found one TODO in src/main.rs."
+        }
+      ]
+    }
+  ],
+  "_desired_messages_input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Search the repo for TODO comments."
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I'll grep for TODO markers."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "toolu_inbound_1",
+      "name": "grep",
+      "arguments": "{\"path\":\"src\",\"pattern\":\"TODO\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "toolu_inbound_1",
+      "output": "src/main.rs:42: // TODO: fix"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Found one TODO in src/main.rs."
+        }
+      ]
+    }
+  ],
+  "expected_tools": [
+    {
+      "type": "function",
+      "name": "grep",
+      "description": "Search file contents",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": { "type": "string" },
+          "path": { "type": "string" }
+        },
+        "required": ["pattern"]
+      }
+    },
+    {
+      "type": "web_search_preview"
+    }
+  ],
+  "tool_choice_cases": [
+    {
+      "anthropic": { "type": "auto" },
+      "expected": "auto"
+    },
+    {
+      "anthropic": { "type": "any" },
+      "expected": "required"
+    },
+    {
+      "anthropic": { "type": "tool", "name": "grep" },
+      "expected": { "type": "function", "name": "grep" }
+    }
+  ]
+}

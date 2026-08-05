@@ -1,0 +1,92 @@
+# ===================================================================
+# xli — Anthropic + Gemini side by side
+# ===================================================================
+#
+# Copy to ~/.xli/config.toml (or $XLI_HOME/config.toml).
+#
+# Prerequisites:
+#   export ANTHROPIC_API_KEY="your-api-key-here"
+#   export GEMINI_API_KEY="your-api-key-here"
+#
+# Launch:
+#   xli                    # default profile — Claude Opus
+#   xli -p opus
+#   xli -p sonnet
+#   xli -p haiku
+#   xli -p gemini-pro
+#   xli -p gemini-flash
+#
+# Each profile pins both the model and the provider, so switching
+# providers is a single `-p` flag. A bare `-m <model>` override keeps
+# whatever provider is currently active, so prefer profiles when
+# crossing provider boundaries.
+#
+# ===================================================================
+
+# ── Defaults for a bare `xli` invocation ───────────────────────────
+model = "claude-opus-4-7"
+model_provider = "anthropic"
+model_reasoning_effort = "medium"
+model_reasoning_summary = "detailed"
+web_search = "disabled"
+
+# ── Providers ──────────────────────────────────────────────────────
+# Both use `env_http_headers` because each vendor expects its own
+# auth header rather than `Authorization: Bearer`. See README.md.
+
+[model_providers.anthropic]
+name = "Anthropic"
+base_url = "https://api.anthropic.com/v1"
+wire_api = "messages"
+requires_openai_auth = false
+env_http_headers = { "x-api-key" = "ANTHROPIC_API_KEY" }
+
+[model_providers.gemini]
+name = "Google Gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+wire_api = "generate_content"
+requires_openai_auth = false
+env_http_headers = { "x-goog-api-key" = "GEMINI_API_KEY" }
+
+# ── Anthropic profiles ─────────────────────────────────────────────
+
+[profiles.opus]
+model = "claude-opus-4-7"
+model_provider = "anthropic"
+model_reasoning_effort = "high"
+
+[profiles.sonnet]
+model = "claude-sonnet-4-6"
+model_provider = "anthropic"
+model_reasoning_effort = "medium"
+
+[profiles.haiku]
+model = "claude-haiku-4-5-20251001"
+model_provider = "anthropic"
+model_reasoning_effort = "low"
+
+# ── Gemini profiles ────────────────────────────────────────────────
+
+[profiles.gemini-pro]
+model = "gemini-3.1-pro-preview"
+model_provider = "gemini"
+model_reasoning_effort = "high"
+
+[profiles.gemini-flash]
+model = "gemini-3-flash-preview"
+model_provider = "gemini"
+model_reasoning_effort = "medium"
+
+[profiles.gemini-25-pro]
+model = "gemini-2.5-pro"
+model_provider = "gemini"
+model_reasoning_effort = "high"
+
+# ── Telemetry ──────────────────────────────────────────────────────
+[otel]
+metrics_exporter = "none"
+log_user_prompt = false
+
+# ── TUI ────────────────────────────────────────────────────────────
+[tui]
+theme = "nord"
